@@ -50,7 +50,7 @@ def get_heatmap(time_index: int = Query(0)):
     arr = ds[param].isel(time=time_index).values
     return {
         "time": float(ds.time[time_index]),
-        "heatmap": arr.tolist()  # consider compression in real API
+        "heatmap": arr.tolist()
     }
 
 
