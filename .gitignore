@@ -164,6 +164,7 @@ cython_debug/
 data/
 data-*/
 data/raw/*
+data/nc/*
 data/zarr/*
 *.zip
 *.nc
