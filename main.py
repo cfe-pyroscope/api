@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-import numpy as np
-from zarr_loader import convert_nc_to_zarr, load_zarr
+from modules.zarr_loader import convert_nc_to_zarr, load_zarr
 
 app = FastAPI(
     title="Fire Front Radar API",
@@ -12,8 +11,8 @@ app = FastAPI(
     redoc_url="/api/v1/redoc",
     contact={
     "name": "Fire Front Radar Team",
-    "email": "",
-    "url": ""
+    "email": "info@firefrontradar.org",  # <- or just remove
+    "url": "https://firefrontradar.org"  # <- or just remove
     },
 )
 
@@ -24,8 +23,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-convert_nc_to_zarr()  # Ensure Zarr store exists
+convert_nc_to_zarr()
 ds = load_zarr()
+
+@app.get("/")
+async def index():
+    return {"message": "Fire Front Radar API"}
 
 
 @app.get("/metadata")

@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-numpy
-xarray
-zarr
-SQLAlchemy
-alembic
-pydantic
-python-multipart
