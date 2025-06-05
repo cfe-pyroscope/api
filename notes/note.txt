@@ -1,1 +1,8 @@
 uvicorn main:app --host=127.0.0.1 --port=8090 --reload
+
+
+
+const res = await fetch("/heatmap/tile?time_index=0&scale=0.1");
+const json = await res.json();
+
+Rome, Italy (approx. lat=41.9, lon=12.5)
