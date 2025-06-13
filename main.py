@@ -1,14 +1,20 @@
+import io
+from datetime import datetime, timedelta
+
+import pandas as pd
+import numpy as np
+from scipy.ndimage import zoom
+import matplotlib
+import matplotlib.pyplot as plt
+
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi import Response
-from modules.zarr_loader import convert_nc_to_zarr, load_zarr
-import numpy as np
-from scipy.ndimage import zoom
-from datetime import datetime, timedelta
 from fastapi.responses import StreamingResponse
-import matplotlib.pyplot as plt
-import io
+from modules.zarr_loader import convert_nc_to_zarr, load_zarr
+
+
+matplotlib.use('Agg')
 
 app = FastAPI(
     title="Fire Front Radar API",
@@ -73,17 +79,23 @@ def get_bounds():
     }
 
 @app.get("/heatmap/image")
-def get_heatmap_image(base: str = Query(...), lead: int = Query(...)):
+def get_heatmap_image(
+    base: str = Query(...),
+    lead: int = Query(...),
+    bbox: str = Query(None)
+):
     try:
         base_dt = datetime.fromisoformat(base.replace("Z", ""))
         valid_hours = (base_dt - BASE_TIME).total_seconds() / 3600 + lead
 
-        time_values = ds.time.values
-        time_index = int(np.argmin(np.abs(time_values - valid_hours)))
+        # Convert all temporal values in "hours from BASE_TIME"
+        time_in_hours = np.array([
+            (pd.to_datetime(t).to_pydatetime() - BASE_TIME).total_seconds() / 3600
+            for t in ds.time.values
+        ])
 
-        print("valid_hours =", valid_hours)
-        print("ds.time.values =", ds.time.values)
-        print("ds.time.dtype =", ds.time.dtype)
+        # Calculate time index closest to the requested value
+        time_index = int(np.argmin(np.abs(time_in_hours - valid_hours)))
 
         param = list(ds.data_vars.keys())[0]
         data = ds[param].isel(time=time_index).values
@@ -91,14 +103,24 @@ def get_heatmap_image(base: str = Query(...), lead: int = Query(...)):
 
         data = zoom(data, 0.2)
 
-        lat_min, lat_max = float(ds.lat.min()), float(ds.lat.max())
-        lon_min, lon_max = float(ds.lon.min()), float(ds.lon.max())
+        if bbox:
+            try:
+                lat_min, lon_min, lat_max, lon_max = map(float, bbox.split(','))
+            except ValueError:
+                return JSONResponse(status_code=400, content={"error": "Invalid bbox format"})
+        else:
+            lat_min, lat_max = float(ds.lat.min()), float(ds.lat.max())
+            lon_min, lon_max = float(ds.lon.min()), float(ds.lon.max())
 
         fig, ax = plt.subplots(figsize=(6, 4), dpi=150)
-        ax.set_xlim([0, data.shape[1]])
-        ax.set_ylim([data.shape[0], 0])
         ax.axis("off")
-        ax.imshow(data, cmap="inferno", extent=[lon_min, lon_max, lat_min, lat_max], origin="lower")
+
+        ax.imshow(
+            data,
+            cmap="inferno",
+            extent=[lon_min, lon_max, lat_min, lat_max],
+            origin="lower"
+        )
 
         buf = io.BytesIO()
         plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
@@ -108,4 +130,5 @@ def get_heatmap_image(base: str = Query(...), lead: int = Query(...)):
         return StreamingResponse(buf, media_type="image/png")
 
     except Exception as e:
+        print("Error in /heatmap/image:", str(e))
         return JSONResponse(status_code=400, content={"error": str(e)})
