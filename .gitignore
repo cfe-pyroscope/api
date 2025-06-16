@@ -167,5 +167,7 @@ data/nc/*
 data/nc/fopi/*
 data/nc/pof/*
 data/zarr/*
+data/zarr/fopi/*
+data/zarr/pof/*
 *.zip
 *.nc
