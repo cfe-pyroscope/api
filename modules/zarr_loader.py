@@ -3,8 +3,8 @@ import zarr
 import numpy as np
 from pathlib import Path
 
-DATA_PATH = Path("data/nc/fopi_2024120100.nc")
-ZARR_STORE = Path("data/zarr/fopi_2024120100.zarr")
+DATA_PATH = Path("data/nc/fopi/fopi_2024120100.nc")
+ZARR_STORE = Path("data/zarr/fopi/fopi_2024120100.zarr")
 
 
 def clean_time(ds, time_min=0, time_max=1e5):
