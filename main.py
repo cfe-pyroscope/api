@@ -1,9 +1,9 @@
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Carica .env e *sovrascrivi* eventuali variabili già presenti
+# Load .env file and override existing environment variables
 dotenv_path = Path(__file__).with_name(".env")
-load_dotenv(dotenv_path, override=True)   # <-- LA CHIAVE! :contentReference[oaicite:2]{index=2}
+load_dotenv(dotenv_path, override=True)
 
 
 from fastapi import FastAPI, Query, Path
@@ -35,22 +35,45 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
+# Configure CORS middleware to allow the front-end application to access our API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # <--- frontend port
+    allow_origins=["http://localhost:5173"],  # Front-end development server origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # 👇 serve perché il FE possa leggere il nostro header custom
+    # Expose custom header so the front-end can read it
     expose_headers=["X-Extent-3857"],
 )
 
+
 @app.get("/api/{index}")
 async def get_index_metadata(
-    index: str = Path(...),
-    base: str = Query(...),
-    lead: int = Query(...)
-):
+    index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
+    base: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-06-20T00:00:00Z')."),
+    lead: int = Query(..., description="Lead time in hours to add to the base time.")
+) -> dict:
+    """
+    Retrieve metadata for a given dataset index including geographic center and valid timestamp.
+
+    This endpoint:
+      - Loads the Zarr-backed dataset for the specified index.
+      - Parses the base time string and adds the lead time (in hours) to compute a valid time.
+      - Calculates the spatial center (mean latitude and longitude) of the dataset.
+
+    Parameters:
+        index (str): Dataset identifier, must match one of the supported indices.
+        base (str): Base timestamp in ISO 8601 format.
+        lead (int): Number of hours to add to the base time to get the valid time.
+
+    Returns:
+        dict: JSON containing:
+            - "location": [latitude_center, longitude_center]
+            - "valid_time": Valid time as an ISO 8601 string.
+
+    Raises:
+        JSONResponse 400: Returns a JSON error message if processing fails.
+    """
     try:
         ds = load_zarr(index)
         base_dt = datetime.fromisoformat(base.replace("Z", ""))
@@ -69,11 +92,36 @@ async def get_index_metadata(
 
 @app.get("/api/{index}/heatmap/image")
 def get_heatmap_image(
-    index: str = Path(...),
-    base: str = Query(...),
-    lead: int = Query(...),
-    bbox: str = Query(None)
-):
+    index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
+    base: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-06-20T00:00:00Z')."),
+    lead: int = Query(..., description="Lead time in hours to add to the base time."),
+    bbox: str = Query(None, description="Bounding box in Web-Mercator meters as 'x_min,y_min,x_max,y_max'.")
+) -> StreamingResponse:
+    """
+    Generate and return a heatmap image for a dataset at a specified valid time and spatial subset.
+
+    This endpoint:
+      - Loads the Zarr-backed dataset for the specified index.
+      - Determines the base file timestamp from the source encoding.
+      - Computes the requested valid time offset from the base timestamp.
+      - Identifies the closest available time slice in the dataset.
+      - Subsets the data by the provided Web-Mercator bbox or uses the full domain.
+      - Reprojects the subset to EPSG:3857 and renders a heatmap image.
+      - Returns the image as a PNG stream with an 'X-Extent-3857' response header.
+
+    Parameters:
+        index (str): Dataset identifier, must match one of the supported indices.
+        base (str): Base timestamp in ISO 8601 format.
+        lead (int): Number of hours relative to the base time for the valid slice.
+        bbox (str, optional): Subset bounding box in Web-Mercator meters ('x_min,y_min,x_max,y_max').
+
+    Returns:
+        StreamingResponse: PNG image stream of the heatmap. The response header 'X-Extent-3857'
+                          contains the image extent in Web-Mercator meters as 'left,right,bottom,top'.
+
+    Raises:
+        JSONResponse 400: Returns a JSON error message if processing or plotting fails.
+    """
     try:
         ds = load_zarr(index)
         param = list(ds.data_vars.keys())[0]
@@ -97,11 +145,11 @@ def get_heatmap_image(
         logger.info(f"🧭 Closest time index: {time_index}, Available times: {time_in_hours.tolist()}")
 
         if bbox:
-            # Ordine: x_min,y_min,x_max,y_max (metri Web-Mercator)
+            # Order: x_min,y_min,x_max,y_max (meters Web-Mercator)
             x_min, y_min, x_max, y_max = map(float, bbox.split(','))
-            logger.info(f"📥 bbox 3857 ricevuto: {bbox}")
+            logger.info(f"📥 bbox 3857 received: {bbox}")
 
-            # Converte i due corner in lat/lon (EPSG:4326) per il subset
+            # Convert Web-Mercator corner coordinates to lat/lon (EPSG:4326) for subsetting
             transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
             lon_min, lat_min = transformer.transform(x_min, y_min)  # SW
             lon_max, lat_max = transformer.transform(x_max, y_max)  # NE
@@ -115,7 +163,7 @@ def get_heatmap_image(
             lat_min, lon_min, lat_max, lon_max = normalize_bbox(
                 lat_min, lon_min, lat_max, lon_max
             )
-            logger.info("🛑 bbox assente – uso intero dominio")
+            logger.info("🛑 No bbox provided – using full domain")
 
         lat_mask = (ds.lat >= lat_min) & (ds.lat <= lat_max)
         lon_mask = (ds.lon >= lon_min) & (ds.lon <= lon_max)
@@ -124,7 +172,7 @@ def get_heatmap_image(
         logger.info(f"🗺️ Subset lat range: {float(subset.lat.min())} → {float(subset.lat.max())}")
         logger.info(f"🗺️ Subset lon range: {float(subset.lon.min())} → {float(subset.lon.max())}")
 
-        # --- reproiezione in EPSG:3857 ---------------------------------
+        # Reproject the subset to EPSG:3857 (Web-Mercator)
         subset_rio = (
             subset
             .rio.write_crs(4326)  # lat/lon
@@ -138,15 +186,15 @@ def get_heatmap_image(
 
         data = np.nan_to_num(subset_3857.values, nan=0.0)
 
-        # coordinate in metri
+        # coordinates in meters
         x = subset_3857.x.values
         y = subset_3857.y.values
 
-        # flip verticale solo se Y cresce
+        # Flip vertically so that origin='upper' matches the data orientation
         if y[0] < y[-1]:
             data = np.flipud(data)
 
-        # extent (left, right, bottom, top) in metri
+        # extent (left, right, bottom, top) in meters
         x_res = abs(x[1] - x[0])
         y_res = abs(y[1] - y[0])
         extent = [
@@ -156,9 +204,9 @@ def get_heatmap_image(
             y.max() + y_res / 2,
         ]
 
-        # proporzioni figura
-        x_range = x.max() - x.min()  # metri est-ovest
-        y_range = y.max() - y.min()  # metri nord-sud
+        # Calculate figure proportions (meters east-west and north-south)
+        x_range = x.max() - x.min()
+        y_range = y.max() - y.min()
         aspect_ratio = x_range / y_range if y_range else 1
         height = 5
         width = height * aspect_ratio
