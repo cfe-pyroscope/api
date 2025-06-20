@@ -1,78 +1,89 @@
 import xarray as xr
-import zarr
 import numpy as np
 from pathlib import Path
+import re
 
-DATA_PATH = Path("data/nc/fopi/fopi_2024120100.nc")
-ZARR_STORE = Path("data/zarr/fopi/fopi_2024120100.zarr")
+BASE_NC_PATH = Path("data/nc")
+BASE_ZARR_PATH = Path("data/zarr")
+
+FILENAME_PATTERNS = {
+    "fopi": re.compile(r"fopi_(\d{10})\.nc"),
+    "pof": re.compile(r"POF_V2_(\d{4})_(\d{2})_(\d{2})_FC\.nc"),
+}
+
+
+def get_latest_nc_file(index: str) -> Path:
+    folder = BASE_NC_PATH / index
+    pattern = FILENAME_PATTERNS.get(index)
+
+    if not pattern:
+        raise ValueError(f"No filename pattern defined for index '{index}'")
+
+    files = list(folder.glob("*.nc"))
+    matched = []
+
+    for f in files:
+        m = pattern.search(f.name)
+        if m:
+            if index == "fopi":
+                timestamp = m.group(1)
+            elif index == "pof":
+                y, m_, d = m.groups()
+                timestamp = f"{y}{m_}{d}00"
+            else:
+                continue
+            matched.append((timestamp, f))
+
+    if not matched:
+        raise FileNotFoundError(f"No valid NetCDF files found for index '{index}'")
+
+    matched.sort(key=lambda x: x[0], reverse=True)
+    return matched[0][1]
 
 
 def clean_time(ds, time_min=0, time_max=1e5):
-    """
-    Clean the 'time' coordinate in an xarray Dataset by filtering out invalid,
-    missing, or extreme time values outside a specified range.
-
-    This function removes time entries that are NaN, infinite, or fall outside
-    the inclusive range defined by `time_min` and `time_max`. The Dataset is
-    then subset to include only the valid times.
-
-    Args:
-        ds (xarray.Dataset): Input dataset containing a 'time' coordinate.
-        time_min (float, optional): Minimum acceptable time value (inclusive).
-                                    Defaults to 0.
-        time_max (float, optional): Maximum acceptable time value (inclusive).
-                                    Defaults to 100000.
-
-    Returns:
-        xarray.Dataset: A subset of the input dataset filtered to only valid times.
-    """
     time = ds['time']
     valid_time_mask = time.where(
         time.notnull() & np.isfinite(time) & (time >= time_min) & (time <= time_max),
         drop=True
     )
-    ds_cleaned = ds.sel(time=valid_time_mask['time'])
-    return ds_cleaned
+    return ds.sel(time=valid_time_mask['time'])
 
 
-def convert_nc_to_zarr(force=False):
-    """
-    Convert a NetCDF dataset to Zarr format for optimized chunked access,
-    cleaning invalid time coordinates before saving.
+def convert_nc_to_zarr(index: str, force=False) -> Path:
+    nc_path = get_latest_nc_file(index)
 
-    This function checks if the Zarr store already exists and only performs
-    the conversion if it does not exist or if `force=True` is specified.
-    It disables automatic time decoding to avoid overflow errors, cleans
-    the time coordinate, and then writes the cleaned dataset to Zarr format.
+    if index == "fopi":
+        timestamp = re.search(r"fopi_(\d{10})", nc_path.name).group(1)
+    elif index == "pof":
+        y, m, d = re.search(r"POF_V2_(\d{4})_(\d{2})_(\d{2})", nc_path.name).groups()
+        timestamp = f"{y}{m}{d}00"
+    else:
+        raise ValueError(f"Zarr timestamp logic not implemented for index '{index}'")
 
-    Args:
-        force (bool, optional): If True, forces conversion even if Zarr store
-                                exists. Defaults to False.
+    zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
 
-    Returns:
-        pathlib.Path: Path to the Zarr store directory.
-    """
-    if not ZARR_STORE.exists() or force:
-        # Load NetCDF without decoding time to prevent overflow
-        ds = xr.open_dataset(DATA_PATH, chunks={"time": 1, "lat": 256, "lon": 256}, decode_times=False)
-
-        # Clean invalid time entries before anything else
+    if not zarr_store.exists() or force:
+        ds = xr.open_dataset(nc_path, chunks={"time": 1, "lat": 256, "lon": 256}, decode_times=False)
         ds = clean_time(ds)
+        zarr_store.parent.mkdir(parents=True, exist_ok=True)
+        ds.to_zarr(zarr_store, mode="w", consolidated=False)
 
-        # Write to Zarr
-        ds.to_zarr(ZARR_STORE, mode="w")
-    return ZARR_STORE
+    return zarr_store
 
 
+def load_zarr(index: str) -> xr.Dataset:
+    path = convert_nc_to_zarr(index)
+    ds = xr.open_zarr(path)
 
-def load_zarr():
-    """
-    Load the dataset from the previously saved Zarr store.
+    # ✅ Solo per FOPI: converti longitudes 0–360 → -180–180
+    if index == "fopi" and 'lon' in ds.coords and ds.lon.max() > 180:
+        lons = ds.lon.values
+        shifted_lons = (lons + 180) % 360 - 180
+        sort_idx = np.argsort(shifted_lons)
+        ds = ds.isel(lon=sort_idx)
+        ds['lon'].values[:] = shifted_lons[sort_idx]
 
-    Opens the dataset saved in Zarr format for chunked and efficient
-    access, suitable for large multidimensional data arrays.
+    return ds
 
-    Returns:
-        xarray.Dataset: The dataset loaded from the Zarr store.
-    """
-    return xr.open_zarr(ZARR_STORE)
+

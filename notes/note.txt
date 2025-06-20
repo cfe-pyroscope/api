@@ -1,5 +1,7 @@
 uvicorn main:app --host=127.0.0.1 --port=8090 --reload
 
+uvicorn main:app --host=127.0.0.1 --port=8090 --log-level info
+
 http://127.0.0.1:8090/fopi?base=2025-06-12T00:00Z&lead=0
 
 
@@ -8,3 +10,7 @@ const res = await fetch("/heatmap/tile?time_index=0&scale=0.1");
 const json = await res.json();
 
 Rome, Italy (approx. lat=41.9, lon=12.5)
+
+GET /api/fopi?base=2024-12-01T00:00:00Z&lead=0
+GET /api/pof?base=2024-12-01T00:00:00Z&lead=3
+GET /api/fopi/heatmap/image?...
