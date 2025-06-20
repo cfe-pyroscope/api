@@ -19,12 +19,15 @@ def create_project_structure(base_path, folders):
 # Example usage
 base_path = "."
 folders = [
-    "alembic",
     "data/",
     "data/nc/",
-    "data/zarr",
-    "modules",
-    "routes"
+    "data/nc/fopi/",
+    "data/nc/pof/",
+    "data/zarr/",
+    "data/zarr/fopi/",
+    "data/zarr/pof/",
+    "modules/",
+    "routes/"
 ]
 
 create_project_structure(base_path, folders)
