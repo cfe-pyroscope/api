@@ -37,7 +37,6 @@ def calculate_time_index(ds, index: str, base_time: str, lead_hours: int) -> int
     return time_index
 
 
-
 def extract_base_time_from_encoding(ds, index: str) -> datetime:
     """
     Extract the base timestamp from the dataset's source filename.
@@ -51,7 +50,8 @@ def extract_base_time_from_encoding(ds, index: str) -> datetime:
     """
     encoding_source = str(ds.encoding.get("source", ""))
     match = re.search(rf"{index}_(\d{{10}})", encoding_source)
-    base_time_str = match.group(1) if match else "2024120100"
+    today = datetime.now().strftime("%Y%m%d00")
+    base_time_str = match.group(1) if match else today
     file_base_time = datetime.strptime(base_time_str, "%Y%m%d%H")
     logger.info(f"📆 Base file time: {file_base_time.isoformat()}")
     return file_base_time
