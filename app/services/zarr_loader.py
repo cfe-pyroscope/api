@@ -135,5 +135,3 @@ def load_zarr(index: str) -> xr.Dataset:
         ds['lon'].values[:] = shifted_lons[sort_idx]
 
     return ds
-
-
