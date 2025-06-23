@@ -1,7 +1,11 @@
-# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import metadata, heatmap
+
+from app.config import ALLOWED_ORIGINS, API_PREFIX
+from app.logging_config import setup_logging
+
+setup_logging()
 
 app = FastAPI(
     title="Fire Front Radar API",
@@ -19,5 +23,5 @@ app.add_middleware(
     expose_headers=["X-Extent-3857"],
 )
 
-app.include_router(metadata.router, prefix="/api")
-app.include_router(heatmap.router, prefix="/api")
+app.include_router(metadata.router, prefix=API_PREFIX)
+app.include_router(heatmap.router, prefix=API_PREFIX)
