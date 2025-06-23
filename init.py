@@ -1,5 +1,6 @@
 import os
 
+
 def create_project_structure(base_path, folders):
     """
     Creates the folder structure if it doesn't exist.
@@ -19,6 +20,10 @@ def create_project_structure(base_path, folders):
 # Example usage
 base_path = "."
 folders = [
+    "app/",
+    "app/api/",
+    "app/api/routes/"
+    "app/sevices",
     "data/",
     "data/nc/",
     "data/nc/fopi/",
@@ -26,8 +31,7 @@ folders = [
     "data/zarr/",
     "data/zarr/fopi/",
     "data/zarr/pof/",
-    "modules/",
-    "routes/"
+    "notes",
 ]
 
 create_project_structure(base_path, folders)
