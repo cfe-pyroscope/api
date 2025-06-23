@@ -64,14 +64,19 @@ def extract_spatial_subset(ds, param: str, time_index: int, bbox: str):
         lon_min, lat_min = transformer.transform(x_min, y_min)
         lon_max, lat_max = transformer.transform(x_max, y_max)
         lat_min, lon_min, lat_max, lon_max = normalize_bbox(lat_min, lon_min, lat_max, lon_max)
+        logger.info(f"🗺️ Reprojected bbox to lat/lon: ({lat_min}, {lon_min}) → ({lat_max}, {lon_max})")
     else:
         lat_min, lat_max = float(ds.lat.min()), float(ds.lat.max())
         lon_min, lon_max = float(ds.lon.min()), float(ds.lon.max())
         lat_min, lon_min, lat_max, lon_max = normalize_bbox(lat_min, lon_min, lat_max, lon_max)
+        logger.info(f"🗺️ Reprojected bbox to lat/lon: ({lat_min}, {lon_min}) → ({lat_max}, {lon_max})")
         logger.info("🛑 No bbox provided – using full domain")
 
     lat_mask = (ds.lat >= lat_min) & (ds.lat <= lat_max)
     lon_mask = (ds.lon >= lon_min) & (ds.lon <= lon_max)
+    logger.info(f"🌍 Dataset lat range: {ds.lat.min().item()} → {ds.lat.max().item()}")
+    logger.info(f"🌍 Dataset lon range: {ds.lon.min().item()} → {ds.lon.max().item()}")
+
     subset = ds[param].isel(time=time_index).where(lat_mask & lon_mask, drop=True)
     logger.info(f"🗺️ Subset lat range: {float(subset.lat.min())} → {float(subset.lat.max())}")
     logger.info(f"🗺️ Subset lon range: {float(subset.lon.min())} → {float(subset.lon.max())}")

@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse
-from app.services.zarr_loader import load_zarr
+import pandas as pd
 from datetime import datetime, timedelta
+
+from app.services.zarr_loader import load_zarr
+from app.services.time_utils import extract_base_time_from_encoding
 from app.logging_config import logger
 
 router = APIRouter()
@@ -14,15 +17,8 @@ async def get_index_metadata(
     lead_hours: int = Query(..., description="Lead time in hours to add to the base time.")
 ) -> dict:
     """
-    Retrieve metadata for a given dataset index including geographic center and valid timestamp.
-
-    Parameters:
-        index (str): Dataset identifier.
-        base_time (str): ISO 8601 base timestamp.
-        lead_hours (int): Number of hours to add to base time.
-
-    Returns:
-        dict: Geographic center and valid forecast time.
+    Retrieve metadata for a given dataset index including geographic center,
+    valid timestamp, and forecast steps with lead times.
     """
     try:
         ds = load_zarr(index)
@@ -32,10 +28,32 @@ async def get_index_metadata(
         lat_center = float(ds.lat.mean())
         lon_center = float(ds.lon.mean())
 
+        file_base_time = extract_base_time_from_encoding(ds, index)
+
+        # ⏱ Construct forecast steps: list of {time, lead_hours}
+        if index == "fopi":
+            forecast_steps = [
+                {
+                    "time": (file_base_time + timedelta(hours=float(t))).isoformat(),
+                    "lead_hours": int(t)
+                }
+                for t in ds.time.values
+            ]
+        else:  # for pof
+            forecast_steps = [
+                {
+                    "time": pd.to_datetime(t).isoformat(),
+                    "lead_hours": int((pd.to_datetime(t) - file_base_time).total_seconds() // 3600)
+                }
+                for t in ds.time.values
+            ]
+
         return {
             "location": [lat_center, lon_center],
-            "valid_time": valid_dt.isoformat()
+            "valid_time": valid_dt.isoformat(),
+            "forecast_steps": forecast_steps
         }
+
     except Exception as e:
         logger.exception("❌ Failed to retrieve index metadata")
         return JSONResponse(status_code=400, content={"error": str(e)})

@@ -32,7 +32,13 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
     logger.info(f"📥 Loaded index: {index}, param: {param}")
 
     time_index = calculate_time_index(ds, index, base_time, lead_hours)
+
     subset = extract_spatial_subset(ds, param, time_index, bbox)
+    subset_min = float(subset.min().compute())
+    subset_max = float(subset.max().compute())
+    subset_mean = float(subset.mean().compute())
+    logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
+
     data, extent = reproject_and_prepare(subset)
     return render_heatmap(data, extent)
 
@@ -65,7 +71,9 @@ def render_heatmap(data, extent):
     cmap.set_bad(color=(0, 0, 0, 0))
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
-    ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=0, vmax=1)
+    vmin = np.nanmin(data)
+    vmax = np.nanmax(data)
+    ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
