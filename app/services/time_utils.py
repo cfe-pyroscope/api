@@ -20,11 +20,15 @@ def calculate_time_index(ds, index: str, base_time: str, lead_hours: int) -> int
     """
     base_file_time = extract_base_time_from_encoding(ds, index)
     valid_hours = compute_valid_hour(base_file_time, base_time, lead_hours)
+    logger.info(f"ℹ️ index in calculate_time_index: {index}")
+    if index == "fopi":
+        time_in_hours = ds.time.values  # already float
+    else:
+        time_in_hours = np.array([
+            (pd.to_datetime(t).to_pydatetime() - base_file_time).total_seconds() / 3600
+            for t in ds.time.values
+        ])
 
-    time_in_hours = np.array([
-        (pd.to_datetime(t).to_pydatetime() - base_file_time).total_seconds() / 3600
-        for t in ds.time.values
-    ])
     time_index = int(np.argmin(np.abs(time_in_hours - valid_hours)))
     logger.info(f"🧭 Closest time index: {time_index}, Available times: {time_in_hours.tolist()}")
     return time_index
