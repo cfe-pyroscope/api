@@ -1,11 +1,9 @@
-# app/api/routes/heatmap.py
 from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse, StreamingResponse
 from app.services.heatmap_generator import generate_heatmap_image
-import logging
+from app.logging_config import logger
 
 router = APIRouter()
-logger = logging.getLogger("uvicorn")
 
 
 @router.get("/{index}/heatmap/image")
