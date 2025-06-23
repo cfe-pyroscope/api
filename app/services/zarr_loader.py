@@ -59,21 +59,24 @@ def clean_time(ds, time_min=0, time_max=1e5):
     """
     Filter Dataset to include only valid time entries within a specified range.
 
-    Parameters:
-        ds (xr.Dataset): Input xarray dataset containing a 'time' coordinate.
-        time_min (float): Lower bound for valid time values (inclusive).
-        time_max (float): Upper bound for valid time values (inclusive).
+    For 'fopi': keep forecast hours as float (0, 3, 6, ...).
+    For 'pof': skip filtering.
 
     Returns:
-        xr.Dataset: Subset of the original dataset with time values that are finite,
-                    non-null, and within the specified range.
+        xr.Dataset
     """
     time = ds['time']
-    valid_time_mask = time.where(
-        time.notnull() & np.isfinite(time) & (time >= time_min) & (time <= time_max),
-        drop=True
-    )
-    return ds.sel(time=valid_time_mask['time'])
+
+    if np.issubdtype(time.dtype, np.number):
+        valid_mask = (
+            time.notnull() & np.isfinite(time) & (time >= time_min) & (time <= time_max)
+        )
+        ds = ds.sel(time=valid_mask)
+        return ds
+
+    # For datetime64 (e.g. pof), assume all times are valid
+    return ds
+
 
 
 def convert_nc_to_zarr(index: str, force=False) -> Path:
@@ -104,11 +107,23 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
     zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
 
     if not zarr_store.exists() or force:
-        ds = xr.open_dataset(nc_path, chunks={"time": 1, "lat": 256, "lon": 256}, decode_times=False)
+        # 🛠️ decode_times=False for 'fopi' to keep time as forecast hours (float)
+        decode_times_flag = False if index == "fopi" else True
+        ds = xr.open_dataset(
+            nc_path,
+            chunks={"time": 1, "lat": 256, "lon": 256},
+            decode_times=decode_times_flag
+        )
+
         ds = clean_time(ds)
+        # 🔁 Convert fopi time from datetime64 to float (hours from base)
+        if index == "fopi" and np.issubdtype(ds.time.dtype, np.datetime64):
+            base_time = pd.to_datetime(ds.time.values[0])
+            time_hours = [(pd.to_datetime(t) - base_time).total_seconds() / 3600 for t in ds.time.values]
+            ds['time'] = ("time", time_hours)
+
         zarr_store.parent.mkdir(parents=True, exist_ok=True)
         ds.to_zarr(zarr_store, mode="w", consolidated=False)
-
     return zarr_store
 
 

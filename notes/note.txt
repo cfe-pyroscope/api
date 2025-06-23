@@ -14,3 +14,10 @@ Rome, Italy (approx. lat=41.9, lon=12.5)
 GET /api/fopi?base=2024-12-01T00:00:00Z&lead=0
 GET /api/pof?base=2024-12-01T00:00:00Z&lead=3
 GET /api/fopi/heatmap/image?...
+
+rm data/zarr/fopi/fopi_*.zarr
+rm data/zarr/pof/pof_*.zarr
+
+
+python -c "import pyproj; print(pyproj.datadir.get_data_dir())"
+$env:PROJ_LIB = "C:..."

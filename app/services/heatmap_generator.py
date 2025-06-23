@@ -27,20 +27,34 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
             - The rendered PNG image as an in-memory BytesIO buffer.
             - The extent of the image in EPSG:3857 as [left, right, bottom, top].
     """
-    ds = load_zarr(index)
-    param = list(ds.data_vars.keys())[0]
-    logger.info(f"📥 Loaded index: {index}, param: {param}")
+    try:
+        logger.info("🚩 A - loading zarr")
+        ds = load_zarr(index)
 
-    time_index = calculate_time_index(ds, index, base_time, lead_hours)
+        param = list(ds.data_vars.keys())[0]
+        logger.info(f"🚩 B - param selected: {param}")
 
-    subset = extract_spatial_subset(ds, param, time_index, bbox)
-    subset_min = float(subset.min().compute())
-    subset_max = float(subset.max().compute())
-    subset_mean = float(subset.mean().compute())
-    logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
+        time_index = calculate_time_index(ds, index, base_time, lead_hours)
+        logger.info(f"🚩 C - time index: {time_index}")
 
-    data, extent = reproject_and_prepare(subset)
-    return render_heatmap(data, extent)
+        subset = extract_spatial_subset(ds, param, time_index, bbox).load()
+
+        subset_min = float(subset.min().compute())
+        subset_max = float(subset.max().compute())
+        subset_mean = float(subset.mean().compute())
+        logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
+        valid_count = int(subset.count().compute().values)
+        logger.info(f"🚩 D - subset shape: {subset.shape}, valid count: {valid_count}")
+
+        data, extent = reproject_and_prepare(subset)
+        logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
+
+        return render_heatmap(data, extent)
+
+    except Exception as e:
+        logger.exception("🔥 generate_heatmap_image failed")
+        raise
+
 
 
 def render_heatmap(data, extent):
