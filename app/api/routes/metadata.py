@@ -22,6 +22,8 @@ async def get_index_metadata(
     """
     try:
         ds = load_zarr(index)
+        logger.info(f"{index} → time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
+
         base_dt = datetime.fromisoformat(base_time.replace("Z", ""))
         valid_dt = base_dt + timedelta(hours=lead_hours)
 
@@ -32,13 +34,16 @@ async def get_index_metadata(
 
         # ⏱ Construct forecast steps: list of {time, lead_hours}
         if index == "fopi":
-            forecast_steps = [
-                {
-                    "time": (file_base_time + timedelta(hours=float(t))).isoformat(),
-                    "lead_hours": int(t)
-                }
-                for t in ds.time.values
-            ]
+            forecast_steps = []
+            for t in ds.time.values:
+                try:
+                    t_val = float(t)
+                    forecast_steps.append({
+                        "time": (file_base_time + timedelta(hours=t_val)).isoformat(),
+                        "lead_hours": int(t_val)
+                    })
+                except Exception as e:
+                    logger.warning(f"⚠️ Skipping invalid time value in fopi: {t} ({e})")
         else:  # for pof
             forecast_steps = [
                 {
