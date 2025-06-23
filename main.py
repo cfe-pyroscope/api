@@ -3,9 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import metadata, heatmap
 
 from app.config import ALLOWED_ORIGINS, API_PREFIX
-from app.logging_config import setup_logging
 
-setup_logging()
 
 app = FastAPI(
     title="Fire Front Radar API",

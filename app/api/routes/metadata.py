@@ -2,10 +2,10 @@ from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse
 from app.services.zarr_loader import load_zarr
 from datetime import datetime, timedelta
-import logging
+from app.logging_config import logger
 
 router = APIRouter()
-logger = logging.getLogger("uvicorn")
+
 
 @router.get("/{index}")
 async def get_index_metadata(
