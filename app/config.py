@@ -2,8 +2,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
+
 dotenv_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path, override=True)
+
+# To solve my conflict with two versions of postgres, don't move this library from here
+from pyproj import datadir
+print(f"✅ pyproj using PROJ_LIB: {datadir.get_data_dir()}")
 
 # Base paths
 BASE_DIR = Path(__file__).resolve().parent.parent

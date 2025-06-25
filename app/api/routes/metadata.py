@@ -52,7 +52,7 @@ async def get_index_metadata(
                 }
                 for t in ds.time.values
             ]
-
+        logger.info(f"✅ Forecast steps count: {len(forecast_steps)}")
         return {
             "location": [lat_center, lon_center],
             "valid_time": valid_dt.isoformat(),

@@ -1,7 +1,10 @@
 import xarray as xr
 import numpy as np
+import pandas as pd
 from pathlib import Path
 import re
+from app.logging_config import logger
+
 
 BASE_NC_PATH = Path("data/nc")
 BASE_ZARR_PATH = Path("data/zarr")
@@ -78,7 +81,6 @@ def clean_time(ds, time_min=0, time_max=1e5):
     return ds
 
 
-
 def convert_nc_to_zarr(index: str, force=False) -> Path:
     """
     Convert the latest NetCDF file of a dataset to Zarr format, optionally forcing overwrite.
@@ -89,9 +91,6 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
 
     Returns:
         Path: Path to the resulting Zarr store directory.
-
-    Raises:
-        ValueError: If the timestamp extraction logic is not implemented for the given index.
     """
     nc_path = get_latest_nc_file(index)
 
@@ -107,7 +106,11 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
     zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
 
     if not zarr_store.exists() or force:
-        # 🛠️ decode_times=False for 'fopi' to keep time as forecast hours (float)
+        # Optional: clean up old store if force=True
+        if force and zarr_store.exists():
+            import shutil
+            shutil.rmtree(zarr_store)
+
         decode_times_flag = False if index == "fopi" else True
         ds = xr.open_dataset(
             nc_path,
@@ -116,15 +119,19 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
         )
 
         ds = clean_time(ds)
-        # 🔁 Convert fopi time from datetime64 to float (hours from base)
-        if index == "fopi" and np.issubdtype(ds.time.dtype, np.datetime64):
+
+        # 🔁 Ensure FOPI time is always in float hours
+        if index == "fopi":
             base_time = pd.to_datetime(ds.time.values[0])
             time_hours = [(pd.to_datetime(t) - base_time).total_seconds() / 3600 for t in ds.time.values]
             ds['time'] = ("time", time_hours)
+            logger.info(f"🔁 Final time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
 
         zarr_store.parent.mkdir(parents=True, exist_ok=True)
         ds.to_zarr(zarr_store, mode="w", consolidated=False)
+
     return zarr_store
+
 
 
 def load_zarr(index: str) -> xr.Dataset:
