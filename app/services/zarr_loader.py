@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import re
+from filelock import FileLock
+import time
+import shutil
 from app.logging_config import logger
 
 
@@ -104,31 +107,35 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
         raise ValueError(f"Zarr timestamp logic not implemented for index '{index}'")
 
     zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
+    lock_path = zarr_store.with_suffix(".lock")
 
-    if not zarr_store.exists() or force:
-        # Optional: clean up old store if force=True
-        if force and zarr_store.exists():
-            import shutil
-            shutil.rmtree(zarr_store)
+    with FileLock(lock_path):
+        if not zarr_store.exists() or force:
+            if force and zarr_store.exists():
+                logger.info(f"🧹 Removing existing Zarr store at {zarr_store}")
+                shutil.rmtree(zarr_store)
 
-        decode_times_flag = False if index == "fopi" else True
-        ds = xr.open_dataset(
-            nc_path,
-            chunks={"time": 1, "lat": 256, "lon": 256},
-            decode_times=decode_times_flag
-        )
+            decode_times_flag = False if index == "fopi" else True
+            ds = xr.open_dataset(
+                nc_path,
+                chunks={"time": 1, "lat": 256, "lon": 256},
+                decode_times=decode_times_flag
+            )
 
-        ds = clean_time(ds)
+            ds = clean_time(ds)
 
-        # 🔁 Ensure FOPI time is always in float hours
-        if index == "fopi":
-            base_time = pd.to_datetime(ds.time.values[0])
-            time_hours = [(pd.to_datetime(t) - base_time).total_seconds() / 3600 for t in ds.time.values]
-            ds['time'] = ("time", time_hours)
-            logger.info(f"🔁 Final time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
+            # 🔁 Ensure FOPI time is always in float hours
+            if index == "fopi":
+                base_time = pd.to_datetime(ds.time.values[0])
+                time_hours = [(pd.to_datetime(t) - base_time).total_seconds() / 3600 for t in ds.time.values]
+                ds['time'] = ("time", time_hours)
+                logger.info(f"🔁 Final time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
 
-        zarr_store.parent.mkdir(parents=True, exist_ok=True)
-        ds.to_zarr(zarr_store, mode="w", consolidated=False)
+            zarr_store.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"💾 Writing Zarr store to {zarr_store}")
+            ds.to_zarr(zarr_store, mode="w", consolidated=False)
+
+            time.sleep(0.5)  # Optional: give OS time to release file handles
 
     return zarr_store
 
@@ -145,8 +152,20 @@ def load_zarr(index: str) -> xr.Dataset:
         xr.Dataset: The loaded xarray dataset. For 'fopi', longitudes are converted
                     from [0, 360] range to [-180, 180] and sorted accordingly.
     """
-    path = convert_nc_to_zarr(index)
-    ds = xr.open_zarr(path)
+    retries = 3
+    delay_sec = 0.5
+
+    for attempt in range(retries):
+        try:
+            path = convert_nc_to_zarr(index)
+            ds = xr.open_zarr(path)
+            break  # success
+        except PermissionError as e:
+            logger.warning(f"🔄 Zarr file in use for index '{index}', retrying ({attempt + 1}/{retries})...")
+            if attempt == retries - 1:
+                logger.error(f"❌ Failed to load Zarr store for index '{index}' after {retries} attempts.")
+                raise
+            time.sleep(delay_sec)
 
     # ✅ For 'fopi', convert longitudes from 0–360 to -180–180 if needed
     if index == "fopi" and 'lon' in ds.coords and ds.lon.max() > 180:
