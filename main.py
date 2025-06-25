@@ -1,3 +1,12 @@
+import os
+from pathlib import Path
+
+# To solve my conflict with two versions of postgres
+os.environ["PROJ_LIB"] = str(
+    Path(__file__).resolve().parent / ".venv" / "Lib" / "site-packages" / "pyproj" / "proj_dir" / "share" / "proj"
+)
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import metadata, heatmap
