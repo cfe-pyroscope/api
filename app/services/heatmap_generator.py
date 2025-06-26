@@ -57,10 +57,10 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
         raise
 
 
-
 def render_heatmap(data, extent):
     """
     Render a heatmap image from raster data using a predefined color map.
+    Ocean areas (zero/NaN values) will be transparent.
 
     Parameters:
         data (np.ndarray): 2D array of raster values in EPSG:3857.
@@ -79,19 +79,34 @@ def render_heatmap(data, extent):
     ax.axis("off")
     ax.set_aspect("auto")
 
-    masked_data = np.ma.masked_invalid(data)
+    # Make figure background transparent
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
+
+    # Mask both invalid values AND zeros (ocean areas)
+    masked_data = np.ma.masked_where((data == 0) | np.isnan(data) | np.isinf(data), data)
+
+    # Color map - first color is transparent for masked values
     colors = [(0, 0, 0, 0), "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
               "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]
     cmap = ListedColormap(colors)
-    cmap.set_bad(color=(0, 0, 0, 0))
+    cmap.set_bad(color=(0, 0, 0, 0))  # Transparent for masked values
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
-    vmin = np.nanmin(data)
-    vmax = np.nanmax(data)
+
+    # Calculate vmin/vmax excluding zeros and invalid values
+    valid_data = data[(data != 0) & np.isfinite(data)]
+    if len(valid_data) > 0:
+        vmin = np.min(valid_data)
+        vmax = np.max(valid_data)
+    else:
+        vmin, vmax = 0, 1  # Fallback if no valid data
+
     ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0,
+                transparent=True, facecolor='none')  # Ensure transparency is preserved
     plt.close(fig)
     buf.seek(0)
     return buf, extent
