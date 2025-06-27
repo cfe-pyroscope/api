@@ -155,8 +155,8 @@ def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
             ds = clean_time(ds)
 
             if index == "fopi":
-                base_time_dt = pd.to_datetime(ds.time.values[0])
-                time_hours = [(pd.to_datetime(t) - base_time_dt).total_seconds() / 3600 for t in ds.time.values]
+                # Ensure time is numeric (already in forecast hours), skip conversion
+                time_hours = ds.time.values.astype(float)
                 ds['time'] = ("time", time_hours)
                 logger.info(f"🔁 Final time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
 
