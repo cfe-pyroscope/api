@@ -1,1 +1,1 @@
-from . import metadata, heatmap
+from . import latest_date, metadata, heatmap
