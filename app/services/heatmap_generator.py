@@ -30,7 +30,7 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
     """
     try:
         logger.info("🚩 A - loading zarr")
-        ds = load_zarr(index)
+        ds = load_zarr(index, base_time)
 
         param = list(ds.data_vars.keys())[0]
         logger.info(f"🚩 B - param selected: {param}")

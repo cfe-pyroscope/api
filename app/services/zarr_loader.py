@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 from filelock import FileLock
 import time
+from datetime import datetime
 import shutil
 from app.logging_config import logger
 
@@ -61,6 +62,31 @@ def get_latest_nc_file(index: str) -> Path:
     return matched[0][1]
 
 
+def get_nc_file_for_date(index: str, base_date: str) -> Path:
+    """
+    Return the NetCDF file that matches the provided base_date (YYYY-MM-DD or full ISO).
+    """
+    folder = BASE_NC_PATH / index
+    files = list(folder.glob("*.nc"))
+
+    # Normalize input date
+    date_str = base_date.split("T")[0].replace("-", "")
+
+    if index == "fopi":
+        pattern = re.compile(rf"fopi_{date_str}\d{{2}}\.nc")
+    elif index == "pof":
+        y, m, d = date_str[:4], date_str[4:6], date_str[6:8]
+        pattern = re.compile(rf"POF_V2_{y}_{m}_{d}_FC\.nc")
+    else:
+        raise ValueError("Unsupported index")
+
+    for f in files:
+        if pattern.match(f.name):
+            return f
+
+    raise FileNotFoundError(f"No NetCDF file found for index '{index}' and base date '{base_date}'")
+
+
 def clean_time(ds, time_min=0, time_max=1e5):
     """
     Filter Dataset to include only valid time entries within a specified range.
@@ -84,27 +110,31 @@ def clean_time(ds, time_min=0, time_max=1e5):
     return ds
 
 
-def convert_nc_to_zarr(index: str, force=False) -> Path:
+def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
     """
-    Convert the latest NetCDF file of a dataset to Zarr format, optionally forcing overwrite.
+    Convert a NetCDF file for a specific base date to Zarr format.
 
     Parameters:
         index (str): Dataset identifier ('fopi' or 'pof').
-        force (bool): If True, overwrite existing Zarr store even if it exists.
+        base_time (str): ISO 8601 string (e.g. "2025-06-24T22:30:00Z").
+        force (bool): If True, force regeneration even if Zarr exists.
 
     Returns:
-        Path: Path to the resulting Zarr store directory.
+        Path: Path to the Zarr store directory.
     """
-    nc_path = get_latest_nc_file(index)
+    base_date = pd.to_datetime(base_time).date()
+    folder = BASE_NC_PATH / index
 
-    # Determine timestamp string based on filename
-    if index == "fopi":
-        timestamp = re.search(r"fopi_(\d{10})", nc_path.name).group(1)
-    elif index == "pof":
-        y, m, d = re.search(r"POF_V2_(\d{4})_(\d{2})_(\d{2})", nc_path.name).groups()
-        timestamp = f"{y}{m}{d}00"
+    if index == "pof":
+        matching_file = get_nc_file_for_date(index, base_time)
+        timestamp = pd.to_datetime(base_time).strftime("%Y%m%d") + "00"
+
+    elif index == "fopi":
+        matching_file = get_nc_file_for_date(index, base_time)
+        timestamp = re.search(r"fopi_(\d{10})", matching_file.name).group(1)
+
     else:
-        raise ValueError(f"Zarr timestamp logic not implemented for index '{index}'")
+        raise ValueError(f"Unsupported index: {index}")
 
     zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
     lock_path = zarr_store.with_suffix(".lock")
@@ -117,17 +147,16 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
 
             decode_times_flag = False if index == "fopi" else True
             ds = xr.open_dataset(
-                nc_path,
+                matching_file,
                 chunks={"time": 1, "lat": 256, "lon": 256},
                 decode_times=decode_times_flag
             )
 
             ds = clean_time(ds)
 
-            # 🔁 Ensure FOPI time is always in float hours
             if index == "fopi":
-                base_time = pd.to_datetime(ds.time.values[0])
-                time_hours = [(pd.to_datetime(t) - base_time).total_seconds() / 3600 for t in ds.time.values]
+                base_time_dt = pd.to_datetime(ds.time.values[0])
+                time_hours = [(pd.to_datetime(t) - base_time_dt).total_seconds() / 3600 for t in ds.time.values]
                 ds['time'] = ("time", time_hours)
                 logger.info(f"🔁 Final time dtype: {ds.time.dtype}, values: {ds.time.values[:5]}")
 
@@ -135,31 +164,31 @@ def convert_nc_to_zarr(index: str, force=False) -> Path:
             logger.info(f"💾 Writing Zarr store to {zarr_store}")
             ds.to_zarr(zarr_store, mode="w", consolidated=False)
 
-            time.sleep(0.5)  # Optional: give OS time to release file handles
+            time.sleep(0.5)
 
     return zarr_store
 
 
 
-def load_zarr(index: str) -> xr.Dataset:
+def load_zarr(index: str, base_time: str) -> xr.Dataset:
     """
-    Load a Zarr store for a dataset, converting from NetCDF if necessary, and adjust longitude for 'fopi'.
+    Load a Zarr store for the NetCDF file closest to the given base_time.
 
     Parameters:
-        index (str): Dataset identifier ('fopi' or 'pof').
+        index (str): Dataset identifier.
+        base_time (str): ISO 8601 base timestamp string.
 
     Returns:
-        xr.Dataset: The loaded xarray dataset. For 'fopi', longitudes are converted
-                    from [0, 360] range to [-180, 180] and sorted accordingly.
+        xr.Dataset: The loaded xarray dataset.
     """
     retries = 3
     delay_sec = 0.5
 
     for attempt in range(retries):
         try:
-            path = convert_nc_to_zarr(index)
+            path = convert_nc_to_zarr(index, base_time)
             ds = xr.open_zarr(path)
-            break  # success
+            break
         except PermissionError as e:
             logger.warning(f"🔄 Zarr file in use for index '{index}', retrying ({attempt + 1}/{retries})...")
             if attempt == retries - 1:
@@ -167,7 +196,6 @@ def load_zarr(index: str) -> xr.Dataset:
                 raise
             time.sleep(delay_sec)
 
-    # ✅ For 'fopi', convert longitudes from 0–360 to -180–180 if needed
     if index == "fopi" and 'lon' in ds.coords and ds.lon.max() > 180:
         lons = ds.lon.values
         shifted_lons = (lons + 180) % 360 - 180
