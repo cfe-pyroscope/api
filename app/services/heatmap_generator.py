@@ -50,7 +50,8 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
         data, extent = reproject_and_prepare(subset)
         logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
 
-        return render_heatmap(data, extent)
+        image_stream, extent, vmin, vmax = render_heatmap(data, extent)
+        return image_stream, extent, vmin, vmax
 
     except Exception as e:
         logger.exception("🔥 generate_heatmap_image failed")
@@ -95,7 +96,7 @@ def render_heatmap(data, extent):
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
 
     # Calculate vmin/vmax excluding zeros and invalid values
-    valid_data = data[(data != 0) & np.isfinite(data)]
+    valid_data = data[np.isfinite(data)]
     if len(valid_data) > 0:
         vmin = np.min(valid_data)
         vmax = np.max(valid_data)
@@ -109,4 +110,4 @@ def render_heatmap(data, extent):
                 transparent=True, facecolor='none')  # Ensure transparency is preserved
     plt.close(fig)
     buf.seek(0)
-    return buf, extent
+    return buf, extent, float(vmin), float(vmax)

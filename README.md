@@ -3,7 +3,8 @@
 app/  
 │  
 ├── api/  
-│   ├── routes/  
+│   ├── routes/
+│   │   └── available_dates.py      ← /api/available-dates
 │   │   └── latest_date.py      ← /api/latest-date  
 │   │   ├── metadata.py         ← /api/{index}  
 │   │   └── heatmap.py          ← /api/{index}/heatmap/image  

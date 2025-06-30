@@ -8,6 +8,7 @@ from app.logging_config import logger
 
 router = APIRouter()
 
+
 @router.get("/latest-date")
 async def get_latest_date(index: str = Query("pof", description="Dataset index: 'pof' or 'fopi'")):
     """

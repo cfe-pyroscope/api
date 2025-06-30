@@ -9,7 +9,7 @@ os.environ["PROJ_LIB"] = str(
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import latest_date, metadata, heatmap
+from app.api.routes import available_dates, latest_date, metadata, heatmap
 
 from app.config import ALLOWED_ORIGINS, API_PREFIX
 
@@ -27,9 +27,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Extent-3857"],
+    expose_headers=["X-Extent-3857", "X-Scale-Min", "X-Scale-Max"],
 )
 
+app.include_router(available_dates.router, prefix=API_PREFIX)
 app.include_router(latest_date.router, prefix=API_PREFIX)
 app.include_router(metadata.router, prefix=API_PREFIX)
 app.include_router(heatmap.router, prefix=API_PREFIX)

@@ -26,10 +26,13 @@ def get_heatmap_image(
         StreamingResponse: PNG image stream with header 'X-Extent-3857'.
     """
     try:
-        image_stream, extent = generate_heatmap_image(index, base_time, lead_hours, bbox)
+        image_stream, extent, vmin, vmax = generate_heatmap_image(index, base_time, lead_hours, bbox)
 
         response = StreamingResponse(image_stream, media_type="image/png")
         response.headers["X-Extent-3857"] = ",".join(map(str, extent))
+        response.headers["X-Scale-Min"] = str(vmin)
+        response.headers["X-Scale-Max"] = str(vmax)
+
         logger.info(f"✅ Heatmap image generated for {index} [lead={lead_hours}, bbox={bbox}]")
         return response
 
