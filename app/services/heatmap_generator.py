@@ -50,22 +50,22 @@ def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: st
         data, extent = reproject_and_prepare(subset)
         logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
 
-        return render_heatmap(data, extent)
+        image_stream, extent, vmin, vmax = render_heatmap(index, data, extent)
+        return image_stream, extent, vmin, vmax
 
     except Exception as e:
         logger.exception("🔥 generate_heatmap_image failed")
         raise
 
 
-def render_heatmap(data, extent):
+def render_heatmap(index, data, extent):
     """
     Render a heatmap image from raster data using a predefined color map.
     Ocean areas (zero/NaN values) will be transparent.
-
     Parameters:
+        index (str): Dataset identifier (e.g., 'fopi', 'pof').
         data (np.ndarray): 2D array of raster values in EPSG:3857.
         extent (list[float]): Bounding box in EPSG:3857 [left, right, bottom, top].
-
     Returns:
         tuple[io.BytesIO, list[float]]: A PNG image stream and the corresponding extent.
     """
@@ -74,11 +74,9 @@ def render_heatmap(data, extent):
     aspect_ratio = x_range / y_range if y_range else 1
     height = 5
     width = height * aspect_ratio
-
     fig, ax = plt.subplots(figsize=(width, height), dpi=150)
     ax.axis("off")
     ax.set_aspect("auto")
-
     # Make figure background transparent
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
@@ -95,18 +93,54 @@ def render_heatmap(data, extent):
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
 
     # Calculate vmin/vmax excluding zeros and invalid values
-    valid_data = data[(data != 0) & np.isfinite(data)]
+    valid_data = data[np.isfinite(data) & (data > 0)]
     if len(valid_data) > 0:
-        vmin = np.min(valid_data)
-        vmax = np.max(valid_data)
+        data_min = np.min(valid_data)
+        data_max = np.max(valid_data)
+
+        # Different scaling strategies based on index type
+        if index.lower() == 'pof':
+            # For POF: Use percentile-based scaling to enhance contrast
+            # This ensures we use the full color range even for small values
+            p5 = np.percentile(valid_data, 5)  # 5th percentile as minimum
+            p95 = np.percentile(valid_data, 95)  # 95th percentile as maximum
+
+            # Ensure minimum threshold for severe conditions (0.05)
+            vmin = max(p5, 0.001)  # Don't go below 0.001 to avoid over-stretching
+            vmax = max(p95, 0.05)  # Ensure we can show severe conditions (≥0.05)
+
+            logger.info(f"📊 POF scaling - Data range: [{data_min:.4f}, {data_max:.4f}], "
+                        f"Display range: [{vmin:.4f}, {vmax:.4f}]")
+
+        elif index.lower() == 'fopi':
+            # For FOPI: Use the full data range (original behavior)
+            vmin = data_min
+            vmax = data_max
+
+            logger.info(f"📊 FOPI scaling - Data range: [{data_min:.4f}, {data_max:.4f}]")
+
+        else:
+            # Default: Use full range but with some outlier protection
+            p2 = np.percentile(valid_data, 2)
+            p98 = np.percentile(valid_data, 98)
+            vmin = p2
+            vmax = p98
+
+            logger.info(f"📊 Default scaling - Data range: [{data_min:.4f}, {data_max:.4f}], "
+                        f"Display range: [{vmin:.4f}, {vmax:.4f}]")
     else:
         vmin, vmax = 0, 1  # Fallback if no valid data
+        logger.warning("⚠️ No valid data found, using fallback range [0, 1]")
 
-    ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
+    im = ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
+
+    if index.lower() == 'pof':
+        logger.info(f"🔥 POF severe conditions threshold (0.05) maps to color position: "
+                    f"{(0.05 - vmin) / (vmax - vmin):.2f}")
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0,
                 transparent=True, facecolor='none')  # Ensure transparency is preserved
     plt.close(fig)
     buf.seek(0)
-    return buf, extent
+    return buf, extent, float(vmin), float(vmax)

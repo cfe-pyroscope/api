@@ -19,6 +19,35 @@ FILENAME_PATTERNS = {
 }
 
 
+def list_all_nc_files(index: str) -> list[Path]:
+    """
+    Return a list of all NetCDF files for a given index that match the expected filename pattern.
+
+    Parameters:
+        index (str): Dataset identifier, must be a key in FILENAME_PATTERNS.
+
+    Returns:
+        list[Path]: List of matching NetCDF file paths.
+
+    Raises:
+        ValueError: If the index is unsupported.
+        FileNotFoundError: If no matching files are found.
+    """
+    folder = BASE_NC_PATH / index
+    pattern = FILENAME_PATTERNS.get(index)
+
+    if not pattern:
+        raise ValueError(f"No filename pattern defined for index '{index}'")
+
+    all_files = list(folder.glob("*.nc"))
+    matching_files = [f for f in all_files if pattern.match(f.name)]
+
+    if not matching_files:
+        raise FileNotFoundError(f"No matching NetCDF files found for index '{index}'")
+
+    return matching_files
+
+
 def get_latest_nc_file(index: str) -> Path:
     """
     Find the most recent NetCDF file for a given dataset index based on filename patterns.
