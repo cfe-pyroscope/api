@@ -13,7 +13,8 @@ app/
 ├── services/  
 │   ├── zarr_loader.py          ← Data access and caching (Zarr/NetCDF)  
 │   ├── bounds_utils.py         ← BBox normalization and longitude logic  
-│   └── heatmap_generator.py    ← Image generation and reprojection  
+│   └── heatmap_generator.py    ← Image generation and reprojection
+│   ├── time_utils.py           ← Time indexing utilities for forecast datasets   
 │  
 ├── main.py                     ← FastAPI app setup and router inclusion  
 ├── config.py                   ← CORS, paths, constants  

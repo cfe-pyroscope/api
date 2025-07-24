@@ -18,7 +18,6 @@ FILENAME_PATTERNS = {
     "pof": re.compile(r"POF_V2_(\d{4})_(\d{2})_(\d{2})_FC\.nc"),
 }
 
-
 def list_all_nc_files(index: str) -> list[Path]:
     """
     Return a list of all NetCDF files for a given index that match the expected filename pattern.
