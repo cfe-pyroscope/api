@@ -2,12 +2,18 @@ import os
 
 
 def create_project_structure(base_path, folders):
-    """
-    Creates the folder structure if it doesn't exist.
+    """Creates the folder structure if it doesn't exist.
 
-    Parameters:
-    base_path (str): The base path where the folders will be created.
-    folders (list): A list of folder paths to create within the base path.
+    Args:
+        base_path (str): The base path where the folders will be created.
+        folders (list): A list of folder paths to create within the base path.
+
+    Returns:
+        None: This function doesn't return anything but prints status messages.
+
+    Raises:
+        Exception: If an error occurs while creating a folder, the exception is caught
+            and a message is printed.
     """
     for folder in folders:
         folder_path = os.path.join(base_path, folder)

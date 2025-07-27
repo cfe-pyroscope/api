@@ -95,6 +95,7 @@ def reproject_and_prepare(subset):
             - 2D numpy array with NaNs filled and optionally flipped vertically.
             - List representing the spatial extent in EPSG:3857 [left, right, bottom, top].
     """
+    rasterio.show_versions()
     subset_rio = subset.rio.write_crs(4326).rio.set_spatial_dims(x_dim="lon", y_dim="lat")
     subset_3857 = subset_rio.rio.reproject("EPSG:3857", resampling=rasterio.enums.Resampling.bilinear)
 

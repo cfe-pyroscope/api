@@ -5,13 +5,18 @@ from pathlib import Path
 import re
 from filelock import FileLock
 import time
-from datetime import datetime
+from app.api.config import settings
+from sqlmodel import Session
+from app.api.db.session import engine
 import shutil
+from datetime import datetime
 from app.logging_config import logger
+from app.api.crud.db_operations import get_records_by_datetime
 
 
-BASE_NC_PATH = Path("data/nc")
-BASE_ZARR_PATH = Path("data/zarr")
+BASE_NC_PATH = Path(settings.STORAGE_ROOT)
+BASE_ZARR_PATH = Path(settings.STORAGE_ROOT).joinpath("zarr")
+BASE_ZARR_PATH.mkdir(parents=True, exist_ok=True)
 
 FILENAME_PATTERNS = {
     "fopi": re.compile(r"fopi_(\d{10})\.nc"),
@@ -83,7 +88,7 @@ def get_latest_nc_file(index: str) -> Path:
             matched.append((timestamp, f))
 
     if not matched:
-        raise FileNotFoundError(f"No valid NetCDF files found for index '{index}'")
+        raise FileNotFoundError(f"No valid NetCDF files found for index '{index}' in {folder}")
 
     # Sort by timestamp (string comparison) descending and return the latest file
     matched.sort(key=lambda x: x[0], reverse=True)
@@ -91,6 +96,11 @@ def get_latest_nc_file(index: str) -> Path:
 
 
 def get_nc_file_for_date(index: str, base_date: str) -> Path:
+    with Session(engine) as session:
+        data_path = get_records_by_datetime(session, index, datetime.fromisoformat(base_date))
+    return BASE_NC_PATH.joinpath(data_path.filepath)
+
+def get_nc_file_for_date_old(index: str, base_date: str) -> Path:
     """
     Return the NetCDF file that matches the provided base_date (YYYY-MM-DD or full ISO).
     """
