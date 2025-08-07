@@ -6,10 +6,10 @@ from app.api.db.bootstrap import sync_dataset
 from app.api.models.tables import Fopi, Pof
 import uvicorn
 
-# To solve my conflict with two versions of postgres
-# os.environ["PROJ_LIB"] = str(
-#     Path(__file__).resolve().parent / ".venv" / "Lib" / "site-packages" / "pyproj" / "proj_dir" / "share" / "proj"
-# )
+# To solve my conflict with two versions of postgres (DON'T REMOVE OR COMMENT IT)
+os.environ["PROJ_LIB"] = str(
+   Path(__file__).resolve().parent / ".venv" / "Lib" / "site-packages" / "pyproj" / "proj_dir" / "share" / "proj"
+)
 
 
 from fastapi import FastAPI
