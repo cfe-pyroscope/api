@@ -17,8 +17,10 @@ index_table_map = {
 router = APIRouter()
 
 
-@router.get("/available_dates", response_model=List[datetime])
-def get_pof_dates(index: str = Query("pof"),session: Session = Depends(get_session)):
+from fastapi.responses import JSONResponse
+
+@router.get("/available_dates", response_model=dict)
+def get_available_dates(index: str = Query("pof"), session: Session = Depends(get_session)):
     """
     Retrieve all available forecast initialization dates from the database for the specified dataset.
 
@@ -27,9 +29,14 @@ def get_pof_dates(index: str = Query("pof"),session: Session = Depends(get_sessi
         session (Session): Database session injected via dependency.
 
     Returns:
-        List[datetime]: A list of available initialization timestamps.
+        dict: A dictionary containing a list of available initialization timestamps under the key 'available_dates'.
     """
-    return db_operations.get_available_dates(session, index)
+    try:
+        dates = db_operations.get_available_dates(session, index)
+        return {"available_dates": dates}
+    except Exception as e:
+        logger.exception("❌ Failed to fetch available dates")
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @router.get('/latest_date', response_model=dict)
