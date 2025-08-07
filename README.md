@@ -4,9 +4,9 @@ app/
 │     
 ├── api/     
 │   ├── routes/   
-│   │   └── available_dates.py      ← /api/available-dates  
-│   │   └── latest_date.py      ← /api/latest-date    
-│   │   ├── metadata.py         ← /api/{index}    
+│   │   └── available_dates.py  ← /api/{index}/available-dates  
+│   │   └── latest_date.py      ← /api/{index}/latest-date    
+│   │   ├── metadata.py         ← /api/{index}/metadata    
 │   │   └── heatmap.py          ← /api/{index}/heatmap/image    
 │   └── __init__.py    
 │    
