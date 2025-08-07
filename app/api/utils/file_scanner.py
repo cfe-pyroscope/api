@@ -6,10 +6,21 @@ from typing import List, Tuple
 
 def parse_filename(filename: str) -> Tuple[str, datetime]:
     """
-    Parses .nc filenames for two known formats and assigns canonical dataset names.
-    Returns (dataset_name, datetime).
-    """
+    Parse a NetCDF (.nc) filename and extract the dataset name and timestamp.
 
+    Recognizes two specific filename patterns:
+      1. fopi_YYYYMMDDHH.nc  → returns ("Fopi", datetime)
+      2. POF_V2_YYYY_MM_DD_FC.nc → returns ("Pof", datetime)
+
+    Args:
+        filename (str): The name of the .nc file to parse.
+
+    Returns:
+        Tuple[str, datetime]: A tuple containing the dataset name ("Fopi" or "Pof") and the parsed datetime object.
+
+    Raises:
+        ValueError: If the filename does not match any known patterns.
+    """
     # Pattern 1: fopi_YYYYMMDDHH.nc → dataset = "Fopi"
     match1 = re.match(r"fopi_(\d{10})\.nc$", filename, re.IGNORECASE)
     if match1:
@@ -28,7 +39,22 @@ def parse_filename(filename: str) -> Tuple[str, datetime]:
 
 def scan_storage_files(directory: str) -> List[Tuple[str, datetime, str]]:
     """
-    Scans a directory for .nc files, parses them, and returns a list of (dataset, datetime, filepath)
+    Scan a directory for NetCDF (.nc) files, parse their filenames to extract metadata,
+    and return a list of parsed entries.
+
+    For each valid .nc file, the filename is parsed to extract:
+      - Dataset name (e.g., "Fopi", "Pof")
+      - Corresponding datetime
+      - Full file path
+
+    Files that do not match known patterns are skipped with a warning.
+
+    Args:
+        directory (str): Path to the directory containing .nc files.
+
+    Returns:
+        List[Tuple[str, datetime, str]]: A list of tuples containing the dataset name,
+        parsed datetime, and full file path for each recognized file.
     """
     entries = []
     for filename in os.listdir(directory):

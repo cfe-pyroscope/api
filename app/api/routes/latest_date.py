@@ -12,7 +12,21 @@ router = APIRouter()
 @router.get("/latest-date")
 async def get_latest_date(index: str = Query("pof", description="Dataset index: 'pof' or 'fopi'")):
     """
-    Return the most recent available date for a given dataset index.
+    Retrieve the most recent available forecast date for the specified dataset index.
+
+    This endpoint inspects the latest available NetCDF file for the given dataset (`fopi` or `pof`),
+    extracts the date from the filename using a known pattern, and returns it in ISO 8601 format.
+
+    Args:
+        index (str): Dataset identifier. Defaults to "pof". Must be either "pof" or "fopi".
+
+    Returns:
+        dict: A dictionary containing:
+            - `latest_date` (str): The most recent available forecast date in ISO format (YYYY-MM-DD).
+
+    Raises:
+        400 Bad Request: If the file is not found, filename doesn't match expected patterns,
+        or another error occurs during processing.
     """
     logger.info(f"📅 latest-date endpoint hit with index={index}")
     try:

@@ -11,7 +11,21 @@ router = APIRouter()
 @router.get("/available-dates")
 async def get_available_dates(index: str = Query("pof", description="Dataset index: 'pof' or 'fopi'")):
     """
-    Return the list of all available dates (ISO format) for a given dataset index.
+    Retrieve a list of all available forecast dates for the specified dataset.
+
+    This endpoint scans the storage for NetCDF (.nc) files associated with the given dataset
+    (`fopi` or `pof`), extracts valid dates from the filenames, and returns them in
+    chronological order using ISO format (YYYY-MM-DD).
+
+    Args:
+        index (str): Dataset identifier. Defaults to "pof". Must be either "pof" or "fopi".
+
+    Returns:
+        dict: A dictionary containing:
+            - `available_dates` (List[str]): Sorted list of available forecast dates in ISO format.
+
+    Raises:
+        400 Bad Request: If the directory scan or date parsing fails for any reason.
     """
     from app.services.zarr_loader import list_all_nc_files
 

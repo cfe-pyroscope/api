@@ -96,13 +96,43 @@ def get_latest_nc_file(index: str) -> Path:
 
 
 def get_nc_file_for_date(index: str, base_date: str) -> Path:
+    """
+    Retrieve the NetCDF file path for a given index and base date.
+
+    Args:
+        index (str): The data index or variable name to query.
+        base_date (str): The ISO-formatted date string (e.g., "2025-08-07")
+                         used to filter the record.
+
+    Returns:
+        Path: Full path to the corresponding NetCDF (.nc) file.
+
+    Raises:
+        Any exceptions raised by `get_records_by_datetime` or missing files are not handled here.
+    """
     with Session(engine) as session:
         data_path = get_records_by_datetime(session, index, datetime.fromisoformat(base_date))
     return BASE_NC_PATH.joinpath(data_path.filepath)
 
+
 def get_nc_file_for_date_old(index: str, base_date: str) -> Path:
     """
-    Return the NetCDF file that matches the provided base_date (YYYY-MM-DD or full ISO).
+    Find and return the NetCDF (.nc) file path for a given index and base date.
+
+    This function searches in a subdirectory of BASE_NC_PATH based on the provided
+    index ('fopi' or 'pof') and looks for a file whose name matches the date-specific
+    naming pattern.
+
+    Args:
+        index (str): The dataset index, either 'fopi' or 'pof'.
+        base_date (str): The base date in ISO format (e.g., '2025-08-07' or full ISO timestamp).
+
+    Returns:
+        Path: The path to the matching NetCDF file.
+
+    Raises:
+        ValueError: If the provided index is unsupported.
+        FileNotFoundError: If no matching file is found for the given date and index.
     """
     folder = BASE_NC_PATH / index
     files = list(folder.glob("*.nc"))
