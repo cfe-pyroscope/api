@@ -20,7 +20,7 @@ router = APIRouter()
 from fastapi.responses import JSONResponse
 
 @router.get("/available_dates", response_model=dict)
-def get_available_dates(index: str = Query("pof"), session: Session = Depends(get_session)):
+def fetch_available_dates(index: str = Query("pof"), session: Session = Depends(get_session)):
     """
     Retrieve all available forecast initialization dates from the database for the specified dataset.
 
