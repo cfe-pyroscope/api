@@ -14,7 +14,7 @@ os.environ["PROJ_LIB"] = str(
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import forecast, heatmap, metadata, routes
+from app.api.routes import available_dates, forecast, heatmap, latest_date, metadata
 
 from app.config import ALLOWED_ORIGINS, API_PREFIX
 
@@ -52,10 +52,12 @@ def on_startup():
     sync_dataset("Pof", f"{root}/nc/pof", Pof)
 
 
+app.include_router(available_dates.router, prefix=API_PREFIX)
 app.include_router(forecast.router, prefix=API_PREFIX)
 app.include_router(heatmap.router, prefix=API_PREFIX)
 app.include_router(metadata.router, prefix=API_PREFIX)
-app.include_router(routes.router, prefix=API_PREFIX)
+app.include_router(latest_date.router, prefix=API_PREFIX)
+
 
 # This enables debug mode through VSCode and PyCharm
 if __name__ == "__main__":
