@@ -1,8 +1,7 @@
 import os
 from sqlmodel import Session, select
-from app.api.models.tables import Fopi, Pof
 from app.api.db.session import engine
-from app.api.utils.file_scanner import scan_storage_files
+from app.services.file_scanner import scan_storage_files
 from app.api.config import settings
 
 
