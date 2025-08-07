@@ -40,8 +40,8 @@ def on_startup():
     init_db()
     root = settings.STORAGE_ROOT
     # Sync each dataset from its folder into its table
-    sync_dataset("Fopi", f"{root}/fopi", Fopi)
-    sync_dataset("Pof", f"{root}/pof", Pof)
+    sync_dataset("Fopi", f"{root}/nc/fopi", Fopi)
+    sync_dataset("Pof", f"{root}/nc/pof", Pof)
 
 # app.include_router(available_dates.router, prefix=API_PREFIX)
 app.include_router(forecast.router, prefix=API_PREFIX)
