@@ -21,3 +21,8 @@ rm -r data/zarr/pof/pof_*.zarr
 
 python -c "import pyproj; print(pyproj.datadir.get_data_dir())"
 $env:PROJ_LIB = "C:..."
+
+
+git checkout marina-dev
+git fetch origin
+git merge origin/main
