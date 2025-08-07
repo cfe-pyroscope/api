@@ -17,8 +17,27 @@ async def get_forecast_init_steps(
     forecast_init: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)")
 ):
     """
-    Returns all forecast steps for a given forecast initialization time (run).
-    Ensures Zarr is prepared for this run.
+    Retrieve available forecast steps for a given dataset and initialization time.
+
+    This endpoint loads forecast data for the specified dataset (`index`) and forecast
+    initialization time (`forecast_init`), ensures the underlying Zarr store is prepared
+    (converted from NetCDF if needed), and returns a list of time steps with corresponding
+    lead times (in hours). It's used by the frontend to populate the forecast time slider.
+
+    Args:
+        index (str): Dataset identifier, e.g. "fopi" or "pof".
+        forecast_init (str): Forecast run initialization time in ISO 8601 format.
+
+    Returns:
+        dict: A dictionary containing:
+            - `forecast_init`: The initialization time requested.
+            - `location`: [lat, lon] center of the forecast grid.
+            - `forecast_steps`: A list of steps, each with:
+                - `time`: Forecast time in ISO format.
+                - `lead_hours`: Hours since initialization.
+
+    Raises:
+        400 Bad Request: If data loading or processing fails for any reason.
     """
     try:
         # Always use only the run specified in forecast_init (frontend gets available runs from /available-dates)
@@ -70,7 +89,26 @@ def get_forecast_heatmap_image(
     bbox: str = Query(None, description="Bounding box in EPSG:3857 as 'x_min,y_min,x_max,y_max' (optional).")
 ):
     """
-    Generate a heatmap image for a specific forecast initialization and step (lead_hours).
+    Generate and return a forecast heatmap image as a PNG.
+
+    This endpoint renders a heatmap based on forecast data for a given dataset (`index`),
+    initialization time, and lead time (`step`). An optional bounding box (`bbox`) can
+    be used to crop the output image spatially.
+
+    Args:
+        index (str): Dataset identifier ('fopi' or 'pof').
+        forecast_init (str): ISO 8601 forecast initialization time.
+        step (int): Forecast lead time in hours.
+        bbox (str, optional): Optional bounding box in EPSG:3857 format (x_min,y_min,x_max,y_max).
+
+    Returns:
+        StreamingResponse: PNG image with additional headers:
+            - X-Extent-3857: The spatial extent of the image in EPSG:3857.
+            - X-Scale-Min: Minimum value of the data used for scaling.
+            - X-Scale-Max: Maximum value of the data used for scaling.
+
+    Raises:
+        400 Bad Request: If the image generation fails for any reason.
     """
     try:
         # Under the hood, everything else (bbox, projection, scaling) works as in current solution

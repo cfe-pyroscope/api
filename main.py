@@ -37,6 +37,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
+    """
+    Perform application startup tasks:
+      1. Initializes the database and creates tables if they don't exist.
+      2. Synchronizes NetCDF files from local storage directories into the database
+         for both "Fopi" and "Pof" datasets, based on the configured `STORAGE_ROOT`.
+
+    This ensures that the database is ready and reflects the current state of the file system.
+    """
     init_db()
     root = settings.STORAGE_ROOT
     # Sync each dataset from its folder into its table
