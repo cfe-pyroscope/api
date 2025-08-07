@@ -10,7 +10,7 @@ from app.logging_config import logger
 router = APIRouter()
 
 
-@router.get("/metadata/{index}")
+@router.get("/{index}/metadata")
 async def get_index_metadata(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-06-20T00:00:00Z')."),
