@@ -92,11 +92,14 @@ def render_heatmap(index, data, extent):
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
 
-    # Calculate vmin/vmax excluding zeros and invalid values
-    valid_data = data[np.isfinite(data) & (data > 0)]
+    # Calculate vmin/vmax excluding invalid values
+    valid_data = data[np.isfinite(data)]
     if len(valid_data) > 0:
+        """ ORIGINAL CALCULATION
         data_min = np.min(valid_data)
-        data_max = np.max(valid_data)
+        data_max = np.max(valid_data)"""
+        data_min = 0
+        data_max = 1
 
         # Different scaling strategies based on index type
         if index.lower() == 'pof':

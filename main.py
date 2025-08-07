@@ -35,7 +35,6 @@ app.add_middleware(
     expose_headers=["X-Extent-3857", "X-Scale-Min", "X-Scale-Max"],
 )
 
-
 @app.on_event("startup")
 def on_startup():
     """

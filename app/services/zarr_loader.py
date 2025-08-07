@@ -23,77 +23,6 @@ FILENAME_PATTERNS = {
     "pof": re.compile(r"POF_V2_(\d{4})_(\d{2})_(\d{2})_FC\.nc"),
 }
 
-def list_all_nc_files(index: str) -> list[Path]:
-    """
-    Return a list of all NetCDF files for a given index that match the expected filename pattern.
-
-    Parameters:
-        index (str): Dataset identifier, must be a key in FILENAME_PATTERNS.
-
-    Returns:
-        list[Path]: List of matching NetCDF file paths.
-
-    Raises:
-        ValueError: If the index is unsupported.
-        FileNotFoundError: If no matching files are found.
-    """
-    folder = BASE_NC_PATH / index
-    pattern = FILENAME_PATTERNS.get(index)
-
-    if not pattern:
-        raise ValueError(f"No filename pattern defined for index '{index}'")
-
-    all_files = list(folder.glob("*.nc"))
-    matching_files = [f for f in all_files if pattern.match(f.name)]
-
-    if not matching_files:
-        raise FileNotFoundError(f"No matching NetCDF files found for index '{index}'")
-
-    return matching_files
-
-
-def get_latest_nc_file(index: str) -> Path:
-    """
-    Find the most recent NetCDF file for a given dataset index based on filename patterns.
-
-    Parameters:
-        index (str): Dataset identifier, must match a key in FILENAME_PATTERNS.
-
-    Returns:
-        Path: Path object pointing to the latest NetCDF file in BASE_NC_PATH/index.
-
-    Raises:
-        ValueError: If no filename pattern is defined for the given index.
-        FileNotFoundError: If no matching NetCDF files are found in the directory.
-    """
-    folder = BASE_NC_PATH / index
-    pattern = FILENAME_PATTERNS.get(index)
-
-    if not pattern:
-        raise ValueError(f"No filename pattern defined for index '{index}'")
-
-    files = list(folder.glob("*.nc"))
-    matched = []
-
-    for f in files:
-        m = pattern.search(f.name)
-        if m:
-            if index == "fopi":
-                timestamp = m.group(1)
-            elif index == "pof":
-                y, m_, d = m.groups()
-                timestamp = f"{y}{m_}{d}00"
-            else:
-                continue
-            matched.append((timestamp, f))
-
-    if not matched:
-        raise FileNotFoundError(f"No valid NetCDF files found for index '{index}' in {folder}")
-
-    # Sort by timestamp (string comparison) descending and return the latest file
-    matched.sort(key=lambda x: x[0], reverse=True)
-    return matched[0][1]
-
 
 def get_nc_file_for_date(index: str, base_date: str) -> Path:
     """
@@ -114,45 +43,6 @@ def get_nc_file_for_date(index: str, base_date: str) -> Path:
         data_path = get_records_by_datetime(session, index, datetime.fromisoformat(base_date))
     return BASE_NC_PATH.joinpath(data_path.filepath)
 
-
-def get_nc_file_for_date_old(index: str, base_date: str) -> Path:
-    """
-    Find and return the NetCDF (.nc) file path for a given index and base date.
-
-    This function searches in a subdirectory of BASE_NC_PATH based on the provided
-    index ('fopi' or 'pof') and looks for a file whose name matches the date-specific
-    naming pattern.
-
-    Args:
-        index (str): The dataset index, either 'fopi' or 'pof'.
-        base_date (str): The base date in ISO format (e.g., '2025-08-07' or full ISO timestamp).
-
-    Returns:
-        Path: The path to the matching NetCDF file.
-
-    Raises:
-        ValueError: If the provided index is unsupported.
-        FileNotFoundError: If no matching file is found for the given date and index.
-    """
-    folder = BASE_NC_PATH / index
-    files = list(folder.glob("*.nc"))
-
-    # Normalize input date
-    date_str = base_date.split("T")[0].replace("-", "")
-
-    if index == "fopi":
-        pattern = re.compile(rf"fopi_{date_str}\d{{2}}\.nc")
-    elif index == "pof":
-        y, m, d = date_str[:4], date_str[4:6], date_str[6:8]
-        pattern = re.compile(rf"POF_V2_{y}_{m}_{d}_FC\.nc")
-    else:
-        raise ValueError("Unsupported index")
-
-    for f in files:
-        if pattern.match(f.name):
-            return f
-
-    raise FileNotFoundError(f"No NetCDF file found for index '{index}' and base date '{base_date}'")
 
 
 def clean_time(ds, time_min=0, time_max=1e5):
