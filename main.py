@@ -14,7 +14,7 @@ os.environ["PROJ_LIB"] = str(
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import routes, forecast, heatmap, metadata
+from app.api.routes import forecast, heatmap, metadata, routes
 
 from app.config import ALLOWED_ORIGINS, API_PREFIX
 
@@ -35,6 +35,7 @@ app.add_middleware(
     expose_headers=["X-Extent-3857", "X-Scale-Min", "X-Scale-Max"],
 )
 
+
 @app.on_event("startup")
 def on_startup():
     """
@@ -51,7 +52,7 @@ def on_startup():
     sync_dataset("Fopi", f"{root}/nc/fopi", Fopi)
     sync_dataset("Pof", f"{root}/nc/pof", Pof)
 
-# app.include_router(available_dates.router, prefix=API_PREFIX)
+
 app.include_router(forecast.router, prefix=API_PREFIX)
 app.include_router(heatmap.router, prefix=API_PREFIX)
 app.include_router(metadata.router, prefix=API_PREFIX)

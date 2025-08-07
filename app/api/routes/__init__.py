@@ -1,1 +1,1 @@
-from . import available_dates, forecast, heatmap, latest_date, metadata
+from . import forecast, heatmap, metadata, routes
