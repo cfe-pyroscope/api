@@ -46,10 +46,10 @@ def on_startup():
     This ensures that the database is ready and reflects the current state of the file system.
     """
     init_db()
-    root = settings.STORAGE_ROOT
+    root = settings.NC_PATH
     # Sync each dataset from its folder into its table
-    sync_dataset("Fopi", f"{root}/nc/fopi", Fopi)
-    sync_dataset("Pof", f"{root}/nc/pof", Pof)
+    sync_dataset("Fopi", f"{root}/fopi", Fopi)
+    sync_dataset("Pof", f"{root}/pof", Pof)
 
 
 app.include_router(available_dates.router, prefix=API_PREFIX)

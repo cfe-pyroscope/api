@@ -1,84 +1,58 @@
-# app/api/routes/forecast.py
-
 from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime, timedelta
-from app.services.zarr_loader import convert_nc_to_zarr, load_zarr
-from app.services.time_utils import extract_base_time_from_encoding
-from app.services.heatmap_generator import generate_heatmap_image
+from app.services.zarr_loader import load_zarr
+from app.services.time_utils import calculate_valid_times
+from app.services.file_scanner import scan_storage_files
 from app.logging_config import logger
+from app.services.heatmap_generator import generate_heatmap_image
+from app.api.config import settings
 
 router = APIRouter()
 
 
 @router.get("/{index}/forecast")
-async def get_forecast_init_steps(
+def get_forecast_steps(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    forecast_init: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)")
+    forecast_init: str = Query(..., description="ISO format base forecast date (e.g., 2025-07-11T00:00:00Z)")
 ):
-    """
-    Retrieve available forecast steps for a given dataset and initialization time.
-
-    This endpoint loads forecast data for the specified dataset (`index`) and forecast
-    initialization time (`forecast_init`), ensures the underlying Zarr store is prepared
-    (converted from NetCDF if needed), and returns a list of time steps with corresponding
-    lead times (in hours). It's used by the frontend to populate the forecast time slider.
-
-    Args:
-        index (str): Dataset identifier, e.g. "fopi" or "pof".
-        forecast_init (str): Forecast run initialization time in ISO 8601 format.
-
-    Returns:
-        dict: A dictionary containing:
-            - `forecast_init`: The initialization time requested.
-            - `location`: [lat, lon] center of the forecast grid.
-            - `forecast_steps`: A list of steps, each with:
-                - `time`: Forecast time in ISO format.
-                - `lead_hours`: Hours since initialization.
-
-    Raises:
-        400 Bad Request: If data loading or processing fails for any reason.
-    """
     try:
-        # Always use only the run specified in forecast_init (frontend gets available runs from /available-dates)
-        # Ensure Zarr exists, convert from NC if needed
-        ds = load_zarr(index, forecast_init)
-        file_base_time = extract_base_time_from_encoding(ds, index)
-        lat_center = float(ds.lat.mean())
-        lon_center = float(ds.lon.mean())
+        forecast_init_dt = datetime.fromisoformat(forecast_init.replace("Z", ""))
+        start_date = forecast_init_dt - timedelta(days=9)
 
-        # Prepare the forecast steps array (compatible with ForecastSlider)
-        forecast_steps = []
-        if index == "fopi":
-            for t in ds.time.values:
-                try:
-                    t_val = float(t)
-                    step_time = file_base_time + timedelta(hours=t_val)
-                    forecast_steps.append({
-                        "time": step_time.isoformat() + "Z",
-                        "lead_hours": int(t_val)
-                    })
-                except Exception as e:
-                    logger.warning(f"Skipping invalid time value in fopi: {t} ({e})")
-        else:  # pof
-            for t in ds.time.values:
-                step_time = str(t)
-                t_dt = datetime.fromisoformat(str(t).replace("Z", ""))
-                lead_hours = int((t_dt - file_base_time).total_seconds() // 3600)
-                forecast_steps.append({
-                    "time": t_dt.isoformat() + "Z",
-                    "lead_hours": lead_hours
+        logger.info(f"🔍 Selected forecast_init: {forecast_init_dt.isoformat()} — scanning from {start_date.date()}")
+
+        scan_path = f"{settings.ZARR_PATH}/{index}"
+        all_files = scan_storage_files(scan_path)
+        relevant_files = [
+            (ds_name, dt, path)
+            for ds_name, dt, path in all_files
+            if ds_name.lower() == index.lower()
+            and start_date.date() <= dt.date() <= forecast_init_dt.date()
+        ]
+
+        logger.info(f"📂 Found {len(relevant_files)} matching files for index '{index}'")
+
+        all_steps = []
+
+        for _, file_base_time, _ in sorted(relevant_files, key=lambda x: x[1]):
+            base_time_iso = file_base_time.isoformat() + "Z"
+            ds = load_zarr(index, base_time_iso)
+            steps = calculate_valid_times(ds, index, file_base_time, forecast_init_dt)
+
+            for step in steps:
+                all_steps.append({
+                    "base_time": base_time_iso,
+                    "lead_hours": step["lead_hours"],
+                    "time": step["valid_time"].isoformat() + "Z"
                 })
 
-        return {
-            "forecast_init": forecast_init,
-            "location": [lat_center, lon_center],
-            "forecast_steps": forecast_steps
-        }
+        all_steps.sort(key=lambda x: x["lead_hours"])
+        return {"forecast_steps": all_steps}
 
     except Exception as e:
-        logger.exception("Failed to get forecast steps for run")
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        logger.exception("❌ Failed to get forecast steps")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @router.get("/{index}/forecast/heatmap/image")
