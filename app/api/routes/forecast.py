@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime, timedelta
-from app.services.zarr_loader import load_zarr
-from app.services.time_utils import calculate_valid_times
-from app.services.file_scanner import scan_storage_files
-from logging_config import logger
-from app.services.heatmap_generator import generate_heatmap_image
-from config import settings
+from app.utils.zarr_loader import load_zarr
+from app.utils.time_utils import calculate_valid_times
+from app.utils.file_scanner import scan_storage_files
+from config.logging_config import logger
+from app.utils.heatmap_generator import generate_heatmap_image
+from config.config import settings
 
 router = APIRouter()
 

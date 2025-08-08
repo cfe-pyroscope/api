@@ -3,9 +3,9 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 from datetime import datetime, timedelta
 
-from app.services.zarr_loader import load_zarr
-from app.services.time_utils import extract_base_time_from_encoding
-from logging_config import logger
+from app.utils.zarr_loader import load_zarr
+from app.utils.time_utils import extract_base_time_from_encoding
+from config.logging_config import logger
 
 router = APIRouter()
 

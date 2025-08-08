@@ -5,13 +5,13 @@ from pathlib import Path
 import re
 from filelock import FileLock
 import time
-from sqlmodel import Session
-from db.db.session import engine
 import shutil
 from datetime import datetime
-from logging_config import logger
+from sqlmodel import Session
+from db.db.session import engine
 from db.crud.db_operations import get_records_by_datetime, get_all_records
-from config import settings
+from config.config import settings
+from config.logging_config import logger
 
 
 FILENAME_PATTERNS = {
@@ -190,7 +190,8 @@ def convert_db_records_to_unique_zarr(index: str, session: Session, force: bool 
             sorted_records = sorted(records, key=lambda r: r.datetime)
 
             for record in sorted_records:
-                path = Path(record.file_path)  # Adjust this attribute name if different
+                path = Path(settings.STORAGE_ROOT) / record.filepath
+                print("***PATH", path)
                 if not path.exists():
                     logger.warning(f"File not found: {path}, skipping.")
                     continue
@@ -217,11 +218,13 @@ def convert_db_records_to_unique_zarr(index: str, session: Session, force: bool 
 
             zarr_store.parent.mkdir(parents=True, exist_ok=True)
             logger.info(f"Writing combined Zarr store to {zarr_store}")
-            combined.to_zarr(zarr_store, mode="w", consolidated=True)
+            combined.to_zarr(zarr_store, mode="w", consolidated=True) # UserWarning: Consolidated metadata is currently not part in the Zarr format 3
 
             time.sleep(0.5)
 
     return zarr_store
 
-#convert_db_records_to_unique_zarr("fopi")
-#convert_db_records_to_unique_zarr("pof")
+
+# with Session(engine) as session:
+    # convert_db_records_to_unique_zarr("fopi", session, force=True)
+    # convert_db_records_to_unique_zarr("pof", session, force=True)

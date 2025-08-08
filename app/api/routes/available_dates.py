@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Path
 from sqlmodel import Session
 from db.db.session import get_session
 from models.db_tables import Fopi, Pof
-from logging_config import logger
+from config.logging_config import logger
 from db.crud import db_operations
 
 

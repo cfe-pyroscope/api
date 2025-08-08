@@ -1,7 +1,7 @@
 import rasterio
 import numpy as np
 from pyproj import Transformer
-from logging_config import logger
+from config.logging_config import logger
 
 
 def wrap_longitude(lon: float) -> float:
