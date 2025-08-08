@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from app.api.config import settings
+from config import settings
 from app.api.db.init_db import init_db
 from app.api.db.bootstrap import sync_dataset
 from app.api.models.tables import Fopi, Pof
@@ -16,7 +16,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import available_dates, forecast, heatmap, latest_date, metadata
 
-from app.config import ALLOWED_ORIGINS, API_PREFIX
 
 
 app = FastAPI(
@@ -52,11 +51,12 @@ def on_startup():
     sync_dataset("Pof", f"{root}/pof", Pof)
 
 
-app.include_router(available_dates.router, prefix=API_PREFIX)
-app.include_router(forecast.router, prefix=API_PREFIX)
-app.include_router(heatmap.router, prefix=API_PREFIX)
-app.include_router(metadata.router, prefix=API_PREFIX)
-app.include_router(latest_date.router, prefix=API_PREFIX)
+API = settings.API_PREFIX
+app.include_router(available_dates.router, prefix=API)
+app.include_router(forecast.router, prefix=API)
+app.include_router(heatmap.router, prefix=API)
+app.include_router(metadata.router, prefix=API)
+app.include_router(latest_date.router, prefix=API)
 
 
 # This enables debug mode through VSCode and PyCharm

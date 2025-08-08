@@ -7,7 +7,6 @@ import matplotlib
 from app.services.zarr_loader import load_zarr
 from app.services.bounds_utils import extract_spatial_subset, reproject_and_prepare
 from app.services.time_utils import calculate_time_index
-from app import config
 
 matplotlib.use("Agg")
 logger = logging.getLogger("uvicorn")

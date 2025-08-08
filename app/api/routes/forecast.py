@@ -6,7 +6,7 @@ from app.services.time_utils import calculate_valid_times
 from app.services.file_scanner import scan_storage_files
 from app.logging_config import logger
 from app.services.heatmap_generator import generate_heatmap_image
-from app.api.config import settings
+from config import settings
 
 router = APIRouter()
 
