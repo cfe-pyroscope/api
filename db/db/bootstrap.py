@@ -1,8 +1,8 @@
 import os
 from sqlmodel import Session, select
 from db.db.session import engine
-from app.services.file_scanner import scan_storage_files
-from config import settings
+from app.utils.file_scanner import scan_storage_files
+from config.config import settings
 
 
 def sync_dataset(dataset_name: str, storage_dir: str, table_cls):

@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import matplotlib
-from app.services.zarr_loader import load_zarr
-from app.services.bounds_utils import extract_spatial_subset, reproject_and_prepare
-from app.services.time_utils import calculate_time_index
+from app.utils.zarr_loader import load_zarr
+from app.utils.bounds_utils import extract_spatial_subset, reproject_and_prepare
+from app.utils.time_utils import calculate_time_index
 
 matplotlib.use("Agg")
 logger = logging.getLogger("uvicorn")

@@ -56,6 +56,8 @@ def scan_storage_files(directory: str) -> List[Tuple[str, datetime, str]]:
         List[Tuple[str, datetime, str]]: A list of tuples containing the dataset name,
         parsed datetime, and full file path for each recognized file.
     """
+    if not os.path.isdir(directory):
+        raise FileNotFoundError(f"Directory not found: {directory}")
     entries = []
     for filename in os.listdir(directory):
         if filename.endswith(".nc"):

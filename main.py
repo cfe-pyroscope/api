@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from config import settings
+from config.config import settings
 from db.db.init_db import init_db
 from db.db.bootstrap import sync_dataset
 from models.db_tables import Fopi, Pof
@@ -50,8 +50,10 @@ def on_startup():
     This ensures that the database is ready and reflects the current state of the file system.
     """
     init_db()
-    sync_dataset("Fopi", f"{settings.NC_PATH}/fopi", Fopi)
-    sync_dataset("Pof", f"{settings.NC_PATH}/pof", Pof)
+    root = settings.NC_PATH
+    # Sync each dataset from its folder into its table
+    sync_dataset("Fopi", f"{root}/fopi", Fopi)
+    sync_dataset("Pof", f"{root}/pof", Pof)
 
 
 API = settings.API_PREFIX
