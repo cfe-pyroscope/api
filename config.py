@@ -17,8 +17,8 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",
 
 class Settings(BaseSettings):
     STORAGE_ROOT: Path = Path("./data").resolve()
-    NC_PATH: Path = STORAGE_ROOT / "nc"
-    ZARR_PATH: Path = STORAGE_ROOT / "zarr"
+    NC_PATH: Path = Path("./data/nc").resolve()
+    ZARR_PATH: Path = Path("./data/zarr").resolve()
     API_PREFIX: str = "/api"
 
     model_config = {

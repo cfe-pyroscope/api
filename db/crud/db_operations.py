@@ -1,14 +1,13 @@
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime, timedelta
-from app.api.models.tables import Fopi, Pof
-from app.logging_config import logger
+from models.db_tables import Fopi, Pof
+from logging_config import logger
 
 DATASET_MODELS = {
     "fopi": Fopi,
     "pof": Pof,
 }
-
 
 def get_available_dates(session: Session, dataset: str) -> List[datetime]:
     """
@@ -90,3 +89,22 @@ def get_records_by_datetime(session: Session, dataset: str, target_time: datetim
         raise ValueError(f"Unknown dataset: {dataset}")
     statement = select(model).where(model.datetime > target_time.date(), model.datetime < target_time.date() + timedelta(days=1))
     return session.exec(statement).one()
+
+
+def get_all_records(session: Session, dataset: str):
+    """
+    Retrieve all records from the table corresponding to the dataset.
+
+    Args:
+        session (Session): An active SQLModel database session.
+        dataset (str): Dataset name (e.g., 'fopi' or 'pof').
+
+    Returns:
+        List[SQLModel]: All records from the relevant table.
+    """
+    model = DATASET_MODELS.get(dataset.lower())
+    if not model:
+        raise ValueError(f"Unknown dataset: {dataset}")
+
+    statement = select(model)
+    return session.exec(statement).all()

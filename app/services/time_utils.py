@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
-from app.logging_config import logger
+from logging_config import logger
 
 
 def calculate_time_index(ds, index: str, base_time: str, lead_hours: int) -> int:
