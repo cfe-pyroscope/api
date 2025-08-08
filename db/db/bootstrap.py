@@ -6,6 +6,28 @@ from config.config import settings
 
 
 def sync_dataset(dataset_name: str, storage_dir: str, table_cls):
+    """
+    Scans a local storage directory for dataset files and syncs new entries to the database table.
+
+    This function:
+    - Recursively scans the specified `storage_dir` for files.
+    - Filters files that belong to the specified `dataset_name`.
+    - Computes each file's relative path to the configured storage root.
+    - Compares with existing entries in the database to identify new files.
+    - Inserts new records into the provided database table class.
+
+    Args:
+        dataset_name (str): The name of the dataset to sync.
+        storage_dir (str): Path to the directory where dataset files are stored.
+        table_cls: The ORM table class representing the database table for the dataset.
+
+    Returns:
+        None
+
+    Notes:
+        - Only files with relative paths not already present in the database are added.
+        - Files outside the configured storage root are skipped with a warning.
+    """
     # Get absolute root path from config
     root = os.path.abspath(settings.STORAGE_ROOT)
     storage_dir_abs = os.path.abspath(storage_dir)
