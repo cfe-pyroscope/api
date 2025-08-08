@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from app.logging_config import logger
@@ -73,3 +73,31 @@ def compute_valid_hour(file_base_time: datetime, base_time_str: str, lead_hours:
     valid_hours = (base_dt - file_base_time).total_seconds() / 3600 + lead_hours
     logger.info(f"🕐 Requested valid hours from base: {valid_hours}")
     return valid_hours
+
+
+
+def calculate_valid_times(ds, index: str, file_base_time: datetime, selected_init_time: datetime):
+    """
+    For a given dataset, compute valid times and relative lead_hours from the selected forecast_init time.
+
+    Returns:
+        List[dict]: Each dict contains:
+            - valid_time (datetime)
+            - lead_hours (float)
+    """
+    times = ds.time.values
+    results = []
+
+    if index.lower() == "fopi":
+        for t in times:
+            valid_time = file_base_time + timedelta(hours=float(t))
+            lead_hours = (valid_time - selected_init_time).total_seconds() / 3600
+            results.append({"valid_time": valid_time, "lead_hours": lead_hours})
+
+    elif index.lower() == "pof":
+        for t in times:
+            valid_time = pd.to_datetime(str(t)).to_pydatetime()
+            lead_hours = (valid_time - selected_init_time).total_seconds() / 3600
+            results.append({"valid_time": valid_time, "lead_hours": lead_hours})
+
+    return results
