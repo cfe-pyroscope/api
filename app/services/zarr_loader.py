@@ -6,17 +6,13 @@ import re
 from filelock import FileLock
 import time
 from sqlmodel import Session
-from app.api.db.session import engine
+from db.db.session import engine
 import shutil
 from datetime import datetime
-from app.logging_config import logger
-from app.api.crud.db_operations import get_records_by_datetime
-from app.services.file_scanner import scan_storage_files
+from logging_config import logger
+from db.crud.db_operations import get_records_by_datetime, get_all_records
 from config import settings
 
-
-NC_PATH = Path(settings.NC_PATH)
-ZARR_PATH = Path(settings.ZARR_PATH)
 
 FILENAME_PATTERNS = {
     "fopi": re.compile(r"fopi_(\d{10})\.nc"),
@@ -41,7 +37,7 @@ def get_nc_file_for_date(index: str, base_date: str) -> Path:
     """
     with Session(engine) as session:
         data_path = get_records_by_datetime(session, index, datetime.fromisoformat(base_date))
-    return NC_PATH.joinpath(data_path.filepath)
+    return settings.NC_PATH.joinpath(data_path.filepath)
 
 
 
@@ -161,41 +157,45 @@ def load_zarr(index: str, base_time: str) -> xr.Dataset:
     return ds
 
 
-def convert_multiple_nc_to_unique_zarr(index: str, force: bool = False) -> Path:
+def convert_db_records_to_unique_zarr(index: str, session: Session, force: bool = False) -> Path:
     """
-    Convert all NetCDF files in a directory matching a given index into a single Zarr store.
+    Convert all NetCDF files listed in the DB for a dataset into a single Zarr store.
 
     Parameters:
         index (str): Dataset identifier ('fopi' or 'pof').
+        session (Session): Active DB session to retrieve file paths.
         force (bool): If True, overwrite the existing Zarr store.
 
     Returns:
         Path: Path to the resulting Zarr store directory.
     """
-    input_dir = NC_PATH / index
-    zarr_store = ZARR_PATH / index / f"{index}.zarr"
+    zarr_store = settings.ZARR_PATH / index / f"{index}.zarr"
     lock_path = zarr_store.with_suffix(".lock")
 
-    entries = scan_storage_files(str(input_dir))
+    # Step 1: Get all records for the dataset
+    records = get_all_records(session, index)
 
-    # Filter only entries matching the given index (case-insensitive)
-    filtered_entries = [
-        (ds, dt, path) for ds, dt, path in entries
-        if ds.lower() == index.lower()
-    ]
-
-    if not filtered_entries:
-        raise FileNotFoundError(f"No NetCDF files found for index '{index}' in {input_dir}")
+    if not records:
+        raise FileNotFoundError(f"No NetCDF records found in DB for dataset '{index}'")
 
     with FileLock(lock_path):
         if not zarr_store.exists() or force:
             if force and zarr_store.exists():
-                logger.info(f"🧹 Removing existing Zarr store at {zarr_store}")
+                logger.info(f"Removing existing Zarr store at {zarr_store}")
                 shutil.rmtree(zarr_store)
 
             datasets = []
-            for _, _, path in sorted(filtered_entries, key=lambda x: x[1]):
-                decode_times_flag = False if index == "fopi" else True
+
+            # Step 2: Sort records by datetime if available
+            sorted_records = sorted(records, key=lambda r: r.datetime)
+
+            for record in sorted_records:
+                path = Path(record.file_path)  # Adjust this attribute name if different
+                if not path.exists():
+                    logger.warning(f"File not found: {path}, skipping.")
+                    continue
+
+                decode_times_flag = False if index.lower() == "fopi" else True
 
                 ds = xr.open_dataset(
                     path,
@@ -205,21 +205,23 @@ def convert_multiple_nc_to_unique_zarr(index: str, force: bool = False) -> Path:
 
                 ds = clean_time(ds)
 
-                if index == "fopi":
-                    # Ensure time is numeric
+                if index.lower() == "fopi":
                     ds['time'] = ("time", ds.time.values.astype(float))
 
                 datasets.append(ds)
 
+            if not datasets:
+                raise RuntimeError("No valid datasets to combine.")
+
             combined = xr.concat(datasets, dim="time")
 
             zarr_store.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"💾 Writing combined Zarr store to {zarr_store}")
+            logger.info(f"Writing combined Zarr store to {zarr_store}")
             combined.to_zarr(zarr_store, mode="w", consolidated=True)
 
             time.sleep(0.5)
 
     return zarr_store
 
-#convert_multiple_nc_to_unique_zarr("fopi")
-#convert_multiple_nc_to_unique_zarr("pof")
+#convert_db_records_to_unique_zarr("fopi")
+#convert_db_records_to_unique_zarr("pof")

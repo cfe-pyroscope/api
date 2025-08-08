@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from app.services.zarr_loader import load_zarr
 from app.services.time_utils import extract_base_time_from_encoding
-from app.logging_config import logger
+from logging_config import logger
 
 router = APIRouter()
 

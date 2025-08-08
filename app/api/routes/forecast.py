@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from app.services.zarr_loader import load_zarr
 from app.services.time_utils import calculate_valid_times
 from app.services.file_scanner import scan_storage_files
-from app.logging_config import logger
+from logging_config import logger
 from app.services.heatmap_generator import generate_heatmap_image
 from config import settings
 

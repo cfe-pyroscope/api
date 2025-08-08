@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
 from config import settings
-from app.api.db.init_db import init_db
-from app.api.db.bootstrap import sync_dataset
-from app.api.models.tables import Fopi, Pof
+from db.db.init_db import init_db
+from db.db.bootstrap import sync_dataset
+from models.db_tables import Fopi, Pof
 import uvicorn
 
 # To solve my conflict with two versions of postgres (DON'T REMOVE OR COMMENT IT)
