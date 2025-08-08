@@ -87,7 +87,7 @@ def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
     else:
         raise ValueError(f"Unsupported index: {index}")
 
-    zarr_store = ZARR_PATH / index / f"{index}_{timestamp}.zarr"
+    zarr_store = settings.ZARR_PATH / index / f"{index}_{timestamp}.zarr"
     lock_path = zarr_store.with_suffix(".lock")
 
     with FileLock(lock_path):

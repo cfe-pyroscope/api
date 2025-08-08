@@ -34,6 +34,11 @@ app.add_middleware(
     expose_headers=["X-Extent-3857", "X-Scale-Min", "X-Scale-Max"],
 )
 
+@app.get("/")
+def root():
+    return {"message": "FastAPI is working"}
+
+
 @app.on_event("startup")
 def on_startup():
     """
@@ -45,10 +50,8 @@ def on_startup():
     This ensures that the database is ready and reflects the current state of the file system.
     """
     init_db()
-    root = settings.NC_PATH
-    # Sync each dataset from its folder into its table
-    sync_dataset("Fopi", f"{root}/fopi", Fopi)
-    sync_dataset("Pof", f"{root}/pof", Pof)
+    sync_dataset("Fopi", f"{settings.NC_PATH}/fopi", Fopi)
+    sync_dataset("Pof", f"{settings.NC_PATH}/pof", Pof)
 
 
 API = settings.API_PREFIX
