@@ -10,14 +10,14 @@ from config.logging_config import logger
 router = APIRouter()
 
 
-@router.get("/{index}/metadata")
-async def get_index_metadata(
+@router.get("/{index}/by_date")
+async def get_forecast_steps(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-06-20T00:00:00Z')."),
     lead_hours: int = Query(..., description="Lead time in hours to add to the base time.")
 ) -> dict:
     """
-    Retrieve forecast metadata for a given dataset and forecast time.
+    Retrieve forecasts for a given dataset and date.
 
     This endpoint loads the Zarr dataset corresponding to the provided index and base time,
     then calculates:

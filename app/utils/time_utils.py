@@ -75,29 +75,42 @@ def compute_valid_hour(file_base_time: datetime, base_time_str: str, lead_hours:
     return valid_hours
 
 
-
-def calculate_valid_times(ds, index: str, file_base_time: datetime, selected_init_time: datetime):
+def calculate_valid_times(ds, index: str, base_time: datetime, forecast_init: datetime):
     """
-    For a given dataset, compute valid times and relative lead_hours from the selected forecast_init time.
+    For a given forecast file, return all forecasted steps that match the forecast_init **day**.
+    Supports:
+    - fopi: 3-hourly lead times as float (offsets in hours)
+    - pof: absolute forecast datetimes (datetime64)
 
     Returns:
         List[dict]: Each dict contains:
             - valid_time (datetime)
             - lead_hours (float)
     """
-    times = ds.time.values
     results = []
 
     if index.lower() == "fopi":
-        for t in times:
-            valid_time = file_base_time + timedelta(hours=float(t))
-            lead_hours = (valid_time - selected_init_time).total_seconds() / 3600
-            results.append({"valid_time": valid_time, "lead_hours": lead_hours})
+        for t in ds.time.values:
+            valid_time = base_time + timedelta(hours=float(t))
+            if valid_time.date() == forecast_init.date():
+                lead_hours = (valid_time - base_time).total_seconds() / 3600
+                results.append({
+                    "valid_time": valid_time,
+                    "lead_hours": lead_hours
+                })
 
     elif index.lower() == "pof":
-        for t in times:
-            valid_time = pd.to_datetime(str(t)).to_pydatetime()
-            lead_hours = (valid_time - selected_init_time).total_seconds() / 3600
-            results.append({"valid_time": valid_time, "lead_hours": lead_hours})
+        for t in ds.time.values:
+            valid_time = pd.to_datetime(t).to_pydatetime()
+            if valid_time.date() == forecast_init.date():
+                lead_hours = (valid_time - base_time).total_seconds() / 3600
+                results.append({
+                    "valid_time": valid_time,
+                    "lead_hours": lead_hours
+                })
+                break  # POF gives only one forecast per day, so keep just the first
 
     return results
+
+
+

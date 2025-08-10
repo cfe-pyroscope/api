@@ -1,44 +1,56 @@
-from fastapi import APIRouter, Query, Path
+from fastapi import APIRouter, Query, Path, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime, timedelta
 from app.utils.zarr_loader import load_zarr
 from app.utils.time_utils import calculate_valid_times
 from app.utils.file_scanner import scan_storage_files
-from config.logging_config import logger
 from app.utils.heatmap_generator import generate_heatmap_image
+from sqlmodel import Session
+from db.db.session import get_session
+from db.crud.db_operations import get_all_records
 from config.config import settings
+from config.logging_config import logger
+
 
 router = APIRouter()
 
 
-@router.get("/{index}/forecast")
-def get_forecast_steps(
+@router.get("/{index}/by_forecast")
+def get_forecast_evolution_steps(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    forecast_init: str = Query(..., description="ISO format base forecast date (e.g., 2025-07-11T00:00:00Z)")
+    forecast_init: str = Query(..., description="ISO format base forecast date (e.g., 2025-07-11T00:00:00Z)"),
+    session: Session = Depends(get_session)  # Dependency-injected session
 ):
+    """
+    FORECAST EVOLUTION SYSTEM
+        - The user selects a forecast initialization time → forecast_init
+        - The system must look back 9 days and:
+                - For each base forecast time (e.g., from July 2 to July 11),
+                - Extract only the forecasted values for the selected forecast_init time (i.e., what did the model predict for that moment in time),
+                - Compute the lead time = forecast_init - base_time
+    """
     try:
         forecast_init_dt = datetime.fromisoformat(forecast_init.replace("Z", ""))
         start_date = forecast_init_dt - timedelta(days=9)
 
         logger.info(f"🔍 Selected forecast_init: {forecast_init_dt.isoformat()} — scanning from {start_date.date()}")
 
-        scan_path = f"{settings.ZARR_PATH}/{index}"
-        all_files = scan_storage_files(scan_path)
-        relevant_files = [
-            (ds_name, dt, path)
-            for ds_name, dt, path in all_files
-            if ds_name.lower() == index.lower()
-            and start_date.date() <= dt.date() <= forecast_init_dt.date()
+        records = get_all_records(session, index)
+        logger.info(f"📋 Retrieved {len(records)} records from DB for dataset '{index}'")
+        # Filter records within the time range
+        relevant_records = [
+            record for record in records
+            if start_date.date() <= record.datetime.date() <= forecast_init_dt.date()
         ]
 
-        logger.info(f"📂 Found {len(relevant_files)} matching files for index '{index}'")
+        logger.info(f"📂 Found {len(relevant_records)} matching records for index '{index}'")
 
         all_steps = []
 
-        for _, file_base_time, _ in sorted(relevant_files, key=lambda x: x[1]):
-            base_time_iso = file_base_time.isoformat() + "Z"
+        for record in sorted(relevant_records, key=lambda r: r.datetime):
+            base_time_iso = record.datetime.isoformat() + "Z"
             ds = load_zarr(index, base_time_iso)
-            steps = calculate_valid_times(ds, index, file_base_time, forecast_init_dt)
+            steps = calculate_valid_times(ds, index, record.datetime, forecast_init_dt)
 
             for step in steps:
                 all_steps.append({
@@ -48,6 +60,7 @@ def get_forecast_steps(
                 })
 
         all_steps.sort(key=lambda x: x["lead_hours"])
+        logger.info("🌋🌋🌋 FORECAST steps: %s", all_steps)
         return {"forecast_steps": all_steps}
 
     except Exception as e:
@@ -55,7 +68,8 @@ def get_forecast_steps(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@router.get("/{index}/forecast/heatmap/image")
+
+@router.get("/{index}/by_forecast/heatmap/image")
 def get_forecast_heatmap_image(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     forecast_init: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)"),
@@ -84,7 +98,31 @@ def get_forecast_heatmap_image(
     Raises:
         400 Bad Request: If the image generation fails for any reason.
     """
+
+    """
+    TEMPORARY: Return an empty PNG image for all forecast heatmap requests.
+    """
+    from io import BytesIO
+    from PIL import Image
     try:
+        # Generate an empty white image (e.g., 512x512)
+        width, height = 512, 512
+        image = Image.new("RGBA", (width, height), (255, 255, 255, 0))  # Transparent background
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        buffer.seek(0)
+
+        response = StreamingResponse(buffer, media_type="image/png")
+        response.headers["X-Extent-3857"] = "0,0,0,0"
+        response.headers["X-Scale-Min"] = "0"
+        response.headers["X-Scale-Max"] = "0"
+        logger.info(f"⚠️ Returned empty image for {index} [{forecast_init}, step={step}, bbox={bbox}]")
+        return response
+
+    except Exception as e:
+        logger.exception("Failed to return empty heatmap image")
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    """try:
         # Under the hood, everything else (bbox, projection, scaling) works as in current solution
         image_stream, extent, vmin, vmax = generate_heatmap_image(
             index, forecast_init, step, bbox
@@ -98,4 +136,4 @@ def get_forecast_heatmap_image(
 
     except Exception as e:
         logger.exception("Heatmap generation failed")
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": str(e)})"""
