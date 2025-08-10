@@ -5,124 +5,34 @@ from pathlib import Path
 import re
 from filelock import FileLock
 import time
-from app.api.config import settings
-from sqlmodel import Session
-from app.api.db.session import engine
 import shutil
 from datetime import datetime
-from app.logging_config import logger
-from app.api.crud.db_operations import get_records_by_datetime
-
-
-BASE_NC_PATH = Path(settings.STORAGE_ROOT)
-BASE_ZARR_PATH = Path(settings.STORAGE_ROOT).joinpath("zarr")
-BASE_ZARR_PATH.mkdir(parents=True, exist_ok=True)
-
-FILENAME_PATTERNS = {
-    "fopi": re.compile(r"fopi_(\d{10})\.nc"),
-    "pof": re.compile(r"POF_V2_(\d{4})_(\d{2})_(\d{2})_FC\.nc"),
-}
-
-def list_all_nc_files(index: str) -> list[Path]:
-    """
-    Return a list of all NetCDF files for a given index that match the expected filename pattern.
-
-    Parameters:
-        index (str): Dataset identifier, must be a key in FILENAME_PATTERNS.
-
-    Returns:
-        list[Path]: List of matching NetCDF file paths.
-
-    Raises:
-        ValueError: If the index is unsupported.
-        FileNotFoundError: If no matching files are found.
-    """
-    folder = BASE_NC_PATH / index
-    pattern = FILENAME_PATTERNS.get(index)
-
-    if not pattern:
-        raise ValueError(f"No filename pattern defined for index '{index}'")
-
-    all_files = list(folder.glob("*.nc"))
-    matching_files = [f for f in all_files if pattern.match(f.name)]
-
-    if not matching_files:
-        raise FileNotFoundError(f"No matching NetCDF files found for index '{index}'")
-
-    return matching_files
-
-
-def get_latest_nc_file(index: str) -> Path:
-    """
-    Find the most recent NetCDF file for a given dataset index based on filename patterns.
-
-    Parameters:
-        index (str): Dataset identifier, must match a key in FILENAME_PATTERNS.
-
-    Returns:
-        Path: Path object pointing to the latest NetCDF file in BASE_NC_PATH/index.
-
-    Raises:
-        ValueError: If no filename pattern is defined for the given index.
-        FileNotFoundError: If no matching NetCDF files are found in the directory.
-    """
-    folder = BASE_NC_PATH / index
-    pattern = FILENAME_PATTERNS.get(index)
-
-    if not pattern:
-        raise ValueError(f"No filename pattern defined for index '{index}'")
-
-    files = list(folder.glob("*.nc"))
-    matched = []
-
-    for f in files:
-        m = pattern.search(f.name)
-        if m:
-            if index == "fopi":
-                timestamp = m.group(1)
-            elif index == "pof":
-                y, m_, d = m.groups()
-                timestamp = f"{y}{m_}{d}00"
-            else:
-                continue
-            matched.append((timestamp, f))
-
-    if not matched:
-        raise FileNotFoundError(f"No valid NetCDF files found for index '{index}' in {folder}")
-
-    # Sort by timestamp (string comparison) descending and return the latest file
-    matched.sort(key=lambda x: x[0], reverse=True)
-    return matched[0][1]
+from sqlmodel import Session
+from db.db.session import engine
+from db.crud.db_operations import get_records_by_datetime, get_all_records
+from config.config import settings
+from config.logging_config import logger
 
 
 def get_nc_file_for_date(index: str, base_date: str) -> Path:
+    """
+    Retrieve the NetCDF file path for a given index and base date.
+
+    Args:
+        index (str): The data index or variable name to query.
+        base_date (str): The ISO-formatted date string (e.g., "2025-08-07")
+                         used to filter the record.
+
+    Returns:
+        Path: Full path to the corresponding NetCDF (.nc) file.
+
+    Raises:
+        Any exceptions raised by `get_records_by_datetime` or missing files are not handled here.
+    """
     with Session(engine) as session:
         data_path = get_records_by_datetime(session, index, datetime.fromisoformat(base_date))
-    return BASE_NC_PATH.joinpath(data_path.filepath)
+    return settings.NC_PATH.joinpath(data_path.filepath)
 
-def get_nc_file_for_date_old(index: str, base_date: str) -> Path:
-    """
-    Return the NetCDF file that matches the provided base_date (YYYY-MM-DD or full ISO).
-    """
-    folder = BASE_NC_PATH / index
-    files = list(folder.glob("*.nc"))
-
-    # Normalize input date
-    date_str = base_date.split("T")[0].replace("-", "")
-
-    if index == "fopi":
-        pattern = re.compile(rf"fopi_{date_str}\d{{2}}\.nc")
-    elif index == "pof":
-        y, m, d = date_str[:4], date_str[4:6], date_str[6:8]
-        pattern = re.compile(rf"POF_V2_{y}_{m}_{d}_FC\.nc")
-    else:
-        raise ValueError("Unsupported index")
-
-    for f in files:
-        if pattern.match(f.name):
-            return f
-
-    raise FileNotFoundError(f"No NetCDF file found for index '{index}' and base date '{base_date}'")
 
 
 def clean_time(ds, time_min=0, time_max=1e5):
@@ -160,9 +70,6 @@ def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
     Returns:
         Path: Path to the Zarr store directory.
     """
-    base_date = pd.to_datetime(base_time).date()
-    folder = BASE_NC_PATH / index
-
     if index == "pof":
         matching_file = get_nc_file_for_date(index, base_time)
         timestamp = pd.to_datetime(base_time).strftime("%Y%m%d") + "00"
@@ -174,7 +81,7 @@ def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
     else:
         raise ValueError(f"Unsupported index: {index}")
 
-    zarr_store = BASE_ZARR_PATH / index / f"{index}_{timestamp}.zarr"
+    zarr_store = settings.ZARR_PATH / index / f"{index}_{timestamp}.zarr"
     lock_path = zarr_store.with_suffix(".lock")
 
     with FileLock(lock_path):
@@ -242,3 +149,4 @@ def load_zarr(index: str, base_time: str) -> xr.Dataset:
         ds['lon'].values[:] = shifted_lons[sort_idx]
 
     return ds
+
