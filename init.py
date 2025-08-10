@@ -28,12 +28,9 @@ base_path = "."
 folders = [
     "app/",
     "app/api/",
-    "app/api/crud/",
-    "app/api/db/",
-    "app/api/models/",
     "app/api/routes/",
     "app/api/utils/",
-    "app/sevices",
+    "config",
     "data/",
     "data/nc/",
     "data/nc/fopi/",
@@ -41,7 +38,7 @@ folders = [
     "data/zarr/",
     "data/zarr/fopi/",
     "data/zarr/pof/",
-    "db",
+    "misc",
     "notes",
 ]
 
