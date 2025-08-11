@@ -47,15 +47,19 @@ def _choose_chunks(index: str, probe_ds: xr.Dataset) -> dict:
 
 
 def _wrap_longitudes_if_needed(ds: xr.Dataset, index: str) -> xr.Dataset:
-    """For 'fopi', wrap longitude >180° to [-180, 180) and sort the longitude coordinate, if needed."""
-    if index == "fopi" and ('lon' in ds.coords) and (float(ds['lon'].max()) > 180):
-        import numpy as np  # local import to avoid touching global imports
+    """For 'fopi', wrap longitudes >180° to [-180, 180) and sort them."""
+    if index == "fopi" and ('lon' in ds.coords) and float(ds['lon'].max()) > 180:
         lons = ds['lon'].values
         shifted_lons = (lons + 180) % 360 - 180
-        sort_idx = np.argsort(shifted_lons)
-        ds = ds.isel(lon=sort_idx)
-        ds = ds.assign_coords(lon=shifted_lons[sort_idx])
-        print("Applied longitude wrap to [-180, 180) and sorted longitude coordinate.")
+
+        # Reassign as DataArray to preserve attributes
+        lon_da = xr.DataArray(shifted_lons, dims=ds['lon'].dims, attrs=ds['lon'].attrs)
+        ds = ds.assign_coords(lon=lon_da)
+
+        # Sort by longitude to maintain order
+        ds = ds.sortby('lon')
+
+        print("Applied longitude wrap to [-180, 180) and sorted coordinates.")
     return ds
 
 
