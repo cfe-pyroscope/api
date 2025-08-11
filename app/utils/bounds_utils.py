@@ -1,99 +1,155 @@
 import rasterio
 import numpy as np
 from pyproj import Transformer
+from urllib.parse import unquote
+import xarray as xr
 from config.logging_config import logger
 
 
-def wrap_longitude(lon: float) -> float:
+def _decode_bbox(b: str) -> str:
     """
-    Wrap a longitude value from the range [-180, 180] to [0, 360].
+    Decode a URL-encoded bounding box string.
 
-    Parameters:
-        lon (float): Longitude in degrees, expected in the range [-180, 180].
+    Performs one or two rounds of URL decoding on the input string. A second decoding
+    pass is applied if the first decoded result still contains a "%2C" sequence
+    (encoded comma), which can occur if the string was encoded twice.
+
+    Args:
+        b (str): Bounding box string, potentially URL-encoded one or more times.
+            Example: "-8237642%2C4970351%2C-8235642%2C4972351"
 
     Returns:
-        float: Longitude wrapped to the range [0, 360].
+        str: Decoded bounding box string in plain text form.
+            Example: "-8237642,4970351,-8235642,4972351"
+
+    Example:
+       >>> _decode_bbox("-8237642%2C4970351%2C-8235642%2C4972351")
+        '-8237642,4970351,-8235642,4972351'
     """
-    return lon if lon >= 0 else lon + 360
+    if not b:
+        return b
+    s1 = unquote(b)
+    return unquote(s1) if "%2C" in s1 else s1
 
 
-def normalize_bbox(lat_min, lon_min, lat_max, lon_max, wrap=False):
+def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
     """
-    Normalize a bounding box by ordering its latitude and longitude bounds and optionally wrapping longitudes.
+    Extract a spatial subset from a DataArray or a Dataset variable using an optional bounding box.
 
-    Parameters:
-        lat_min (float): Minimum latitude in degrees.
-        lon_min (float): Minimum longitude in degrees.
-        lat_max (float): Maximum latitude in degrees.
-        lon_max (float): Maximum longitude in degrees.
-        wrap (bool): If True, wrap longitude values from [-180, 180] to [0, 360] before normalization.
+    This function accepts either:
+    - A 2D xarray.DataArray with latitude (`lat`) and longitude (`lon`) coordinates, or
+    - An xarray.Dataset with a specified `param` key selecting the variable of interest.
+
+    If a `bbox` is provided, it should be in EPSG:3857 coordinates and will be transformed
+    to EPSG:4326 (longitude/latitude). The subset operation is aware of antimeridian
+    crossings in the [-180, 180) longitude convention.
+
+    Args:
+        ds_or_da (xarray.DataArray | xarray.Dataset):
+            Input spatial dataset. Must have `lat` and `lon` coordinates.
+        param (str, optional):
+            Name of the variable to extract when passing a Dataset. Required if `ds_or_da` is a Dataset.
+        bbox (str, optional):
+            Bounding box in EPSG:3857 coordinates, formatted as:
+            "x_min,y_min,x_max,y_max".
+            If omitted, the entire spatial extent of the dataset is used.
 
     Returns:
-        tuple[float, float, float, float]: A tuple containing (lat_min, lon_min, lat_max, lon_max) with
-        values reordered so that lat_min <= lat_max and lon_min <= lon_max, and longitudes wrapped if requested.
+        xarray.DataArray:
+            Subset of the input data containing only points within the bounding box.
+            If no `bbox` is provided, returns the full input extent.
+
+    Raises:
+        ValueError:
+            - If `param` is missing when a Dataset is provided.
+            - If the input object does not have both `lat` and `lon` coordinates.
+
+    Notes:
+        - Antimeridian handling: If `lon_min > lon_max` after transformation,
+          the function assumes the bounding box crosses the antimeridian and
+          applies a logical OR mask to select the correct range.
+        - Latitude bounds are automatically reordered if inverted (min > max)
+          after coordinate transformation.
+        - Minor floating-point precision drift is clamped during coordinate checks.
+
+    Example:
+        >>> _extract_spatial_subset(ds, param="temperature", bbox="-8237642,4970351,-8235642,4972351")
     """
-    if wrap:
-        lon_min = wrap_longitude(lon_min)
-        lon_max = wrap_longitude(lon_max)
+    # Resolve to DataArray
+    if isinstance(ds_or_da, xr.Dataset):
+        if not param:
+            raise ValueError("param is required when passing a Dataset.")
+        da = ds_or_da[param]
+    else:
+        da = ds_or_da
 
-    if lon_min > lon_max:
-        lon_min, lon_max = lon_max, lon_min
-    if lat_min > lat_max:
-        lat_min, lat_max = lat_max, lat_min
+    if not all(c in da.coords for c in ("lat", "lon")):
+        raise ValueError(f"Expected 'lat' and 'lon' coordinates; got dims={da.dims}")
 
-    return lat_min, lon_min, lat_max, lon_max
-
-
-def extract_spatial_subset(ds, param: str, time_index: int, bbox: str):
-    """
-    Extract a spatial subset from a dataset based on a bounding box or the full domain.
-
-    Parameters:
-        ds (xr.Dataset): Input dataset containing lat/lon dimensions.
-        param (str): Name of the variable to extract.
-        time_index (int): Index of the time dimension to slice.
-        bbox (str): Optional bounding box in EPSG:3857, formatted as "x_min,y_min,x_max,y_max".
-
-    Returns:
-        xr.DataArray: A subset of the input variable at the given time index and spatial bounds.
-    """
+    # If bbox present, transform EPSG:3857 -> EPSG:4326
     if bbox:
-        x_min, y_min, x_max, y_max = map(float, bbox.split(','))
-        logger.info(f"📥 bbox 3857 received: {bbox}")
+        bbox = _decode_bbox(bbox).strip()
+        x_min, y_min, x_max, y_max = map(float, bbox.split(","))
         transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
         lon_min, lat_min = transformer.transform(x_min, y_min)
         lon_max, lat_max = transformer.transform(x_max, y_max)
-        lat_min, lon_min, lat_max, lon_max = normalize_bbox(lat_min, lon_min, lat_max, lon_max)
-        logger.info(f"🗺️ Reprojected bbox to lat/lon: ({lat_min}, {lon_min}) → ({lat_max}, {lon_max})")
     else:
-        lat_min, lat_max = float(ds.lat.min()), float(ds.lat.max())
-        lon_min, lon_max = float(ds.lon.min()), float(ds.lon.max())
-        lat_min, lon_min, lat_max, lon_max = normalize_bbox(lat_min, lon_min, lat_max, lon_max)
-        logger.info(f"🗺️ Reprojected bbox to lat/lon: ({lat_min}, {lon_min}) → ({lat_max}, {lon_max})")
-        logger.info("🛑 No bbox provided – using full domain")
+        lat_min, lat_max = float(da.lat.min()), float(da.lat.max())
+        lon_min, lon_max = float(da.lon.min()), float(da.lon.max())
 
-    lat_mask = (ds.lat >= lat_min) & (ds.lat <= lat_max)
-    lon_mask = (ds.lon >= lon_min) & (ds.lon <= lon_max)
-    logger.info(f"🌍 Dataset lat range: {ds.lat.min().item()} → {ds.lat.max().item()}")
-    logger.info(f"🌍 Dataset lon range: {ds.lon.min().item()} → {ds.lon.max().item()}")
+    # Clamp tiny fp drift and ensure latitude ordering
+    if lat_min > lat_max:
+        lat_min, lat_max = lat_max, lat_min
 
-    subset = ds[param].isel(time=time_index).where(lat_mask & lon_mask, drop=True)
-    logger.info(f"🗺️ Subset lat range: {float(subset.lat.min())} → {float(subset.lat.max())}")
-    logger.info(f"🗺️ Subset lon range: {float(subset.lon.min())} → {float(subset.lon.max())}")
-    return subset
+    # Antimeridian-aware longitude mask for [-180,180)
+    # crossing happens when lon_min > lon_max (e.g., 170 -> -170)
+    crosses = lon_min > lon_max
+    if crosses:
+        lon_mask = (da.lon >= lon_min) | (da.lon <= lon_max)
+    else:
+        lon_mask = (da.lon >= lon_min) & (da.lon <= lon_max)
+
+    lat_mask = (da.lat >= lat_min) & (da.lat <= lat_max)
+    return da.where(lat_mask & lon_mask, drop=True)
 
 
-def reproject_and_prepare(subset):
+def _reproject_and_prepare(subset):
     """
-    Reproject a spatial subset from EPSG:4326 to EPSG:3857 and compute its extent.
+    Reproject a spatial subset from EPSG:4326 to EPSG:3857 and prepare it for visualization.
 
-    Parameters:
-        subset (xr.DataArray): Input data array with lat/lon coordinates in EPSG:4326.
+    This function:
+    1. Assigns the CRS (EPSG:4326) to the input subset.
+    2. Sets the spatial dimensions to `lon` (x) and `lat` (y).
+    3. Reprojects the subset to Web Mercator (EPSG:3857) using bilinear resampling.
+    4. Fills NaN values with zeros and flips the data vertically if needed so the
+       origin is at the top-left (common for raster images).
+    5. Computes the bounding box extent in projected coordinates.
+
+    Args:
+        subset (xarray.DataArray):
+            Input data array with `lat` and `lon` coordinates in EPSG:4326.
 
     Returns:
-        tuple[np.ndarray, list[float]]: Tuple of:
-            - 2D numpy array with NaNs filled and optionally flipped vertically.
-            - List representing the spatial extent in EPSG:3857 [left, right, bottom, top].
+        tuple:
+            - **numpy.ndarray**:
+                2D array of reprojected data, with NaNs replaced by `0.0` and
+                potentially flipped vertically for correct raster orientation.
+            - **list[float]**:
+                Bounding box extent in EPSG:3857 as
+                `[x_min, x_max, y_min, y_max]`, with edges expanded by half a pixel
+                to match raster conventions.
+
+    Notes:
+        - Uses bilinear resampling via `rasterio.enums.Resampling.bilinear`.
+        - Vertical flip is applied if y-coordinates are ascending.
+        - The extent is padded by half a pixel on all sides to align with pixel centers.
+
+    Example:
+        >>> data, extent = _reproject_and_prepare(subset)
+        >>> data.shape
+        (256, 256)
+        >>> extent
+        [-8237642.0, -8235642.0, 4970351.0, 4972351.0]
     """
     rasterio.show_versions()
     subset_rio = subset.rio.write_crs(4326).rio.set_spatial_dims(x_dim="lon", y_dim="lat")

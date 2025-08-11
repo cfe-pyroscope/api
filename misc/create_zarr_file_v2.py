@@ -201,5 +201,4 @@ def merge_netcdf_to_zarr(index: str):
     # Consolidate metadata once after all files are written
     _consolidate_metadata(output_zarr_path)
 
-
 merge_netcdf_to_zarr("fopi")

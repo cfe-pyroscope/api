@@ -1,116 +1,165 @@
-import re
-from datetime import datetime, timedelta
-import numpy as np
 import pandas as pd
+import numpy as np
+import xarray as xr
+from datetime import datetime, timezone
 from config.logging_config import logger
 
 
-def calculate_time_index(ds, index: str, base_time: str, lead_hours: int) -> int:
+def _iso_utc(dt_like) -> str:
     """
-    Calculate the index of the time step in the dataset that is closest to the requested forecast time.
-
-    Parameters:
-        ds (xr.Dataset): The dataset containing a 'time' coordinate.
-        index (str): Dataset identifier used to extract base time from filename encoding.
-        base_time (str): Base time in ISO 8601 format (e.g. "2025-06-20T00:00:00Z").
-        lead_hours (int): Lead time in hours to add to the base time.
-
-    Returns:
-        int: Index of the closest time step in the dataset.
+    Convert datetime-like values (np.datetime64, pandas.Timestamp, datetime)
+    to ISO-8601 in UTC with a trailing 'Z'.
     """
-    base_file_time = extract_base_time_from_encoding(ds, index)
-    valid_hours = compute_valid_hour(base_file_time, base_time, lead_hours)
-
-    logger.info(f"ℹ️ index in calculate_time_index: {index}")
-
-    if index == "fopi":
-        # Explicitly cast to float to avoid dtype issues
-        time_in_hours = ds.time.values.astype(float)
+    ts = pd.Timestamp(dt_like)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
     else:
-        time_in_hours = np.array([
-            (pd.to_datetime(t).to_pydatetime() - base_file_time).total_seconds() / 3600
-            for t in ds.time.values
-        ])
-
-    time_index = int(np.argmin(np.abs(time_in_hours - valid_hours)))
-    logger.info(f"🧭 Closest time index: {time_index}, Available times: {time_in_hours.tolist()}")
-    return time_index
+        ts = ts.tz_convert("UTC")
+    # Use 'Z' instead of +00:00 for compactness
+    return ts.isoformat().replace("+00:00", "Z")
 
 
-def extract_base_time_from_encoding(ds, index: str) -> datetime:
+def _parse_naive(dt_str: str) -> pd.Timestamp:
     """
-    Extract the base timestamp from the dataset's source filename.
-
-    Parameters:
-        ds (xr.Dataset): Dataset with encoding metadata containing the filename.
-        index (str): Dataset identifier used to select the matching regex pattern.
-
-    Returns:
-        datetime: Parsed base file time from the filename (e.g. 2024120100 → datetime object).
+    Parse an ISO-like datetime string into a naive (timezone-unaware) pandas Timestamp.
+    Accepts with/without 'Z'; if tz-aware, converts to UTC before dropping tz info.
+    Normalizes to whole-second precision.
     """
-    encoding_source = str(ds.encoding.get("source", ""))
-    match = re.search(rf"{index}_(\d{{10}})", encoding_source)
-    today = datetime.now().strftime("%Y%m%d00")
-    base_time_str = match.group(1) if match else today
-    file_base_time = datetime.strptime(base_time_str, "%Y%m%d%H")
-    logger.info(f"📆 Base file time: {file_base_time.isoformat()}")
-    return file_base_time
+    ts = pd.to_datetime(dt_str, errors="raise")
+    if ts.tz is not None:
+        ts = ts.tz_convert("UTC").tz_localize(None)
+    else:
+        ts = ts.tz_localize(None)
+    return pd.Timestamp(ts.replace(microsecond=0))
 
 
-def compute_valid_hour(file_base_time: datetime, base_time_str: str, lead_hours: int) -> float:
+def _normalize_times(base_time: str, forecast_time: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
-    Compute the number of forecast hours relative to the file's base time.
+    Parse and normalize base and forecast time strings into naive pandas Timestamps.
+    Accepts flexible ISO-like formats (with/without 'Z') and normalizes to seconds.
 
-    Parameters:
-        file_base_time (datetime): Base time parsed from the dataset filename.
-        base_time_str (str): Requested base time in ISO 8601 format.
-        lead_hours (int): Lead time in hours to add.
-
-    Returns:
-        float: Valid forecast hour (including offset from file base time).
+    Returns
+    -------
+    tuple[pd.Timestamp, pd.Timestamp]
+        A pair `(base_ts, fcst_ts)` of naive `pd.Timestamp` objects normalized
+        to whole seconds.
     """
-    base_dt = datetime.fromisoformat(base_time_str.replace("Z", ""))
-    valid_hours = (base_dt - file_base_time).total_seconds() / 3600 + lead_hours
-    logger.info(f"🕐 Requested valid hours from base: {valid_hours}")
-    return valid_hours
+    return _parse_naive(base_time), _parse_naive(forecast_time)
 
 
-def calculate_valid_times(ds, index: str, base_time: datetime, forecast_init: datetime):
+def _match_base_time(ds: xr.Dataset, req_base: pd.Timestamp) -> pd.Timestamp:
     """
-    For a given forecast file, return all forecasted steps that match the forecast_init **day**.
-    Supports:
-    - fopi: 3-hourly lead times as float (offsets in hours)
-    - pof: absolute forecast datetimes (datetime64)
+    Match a requested base time to the Dataset's 'base_time' coordinate.
 
-    Returns:
-        List[dict]: Each dict contains:
-            - valid_time (datetime)
-            - lead_hours (float)
+    Steps:
+    1) Normalize all dataset base times to timezone-naive, second precision.
+    2) Try an exact match with `req_base`.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset that must contain a 'base_time' coordinate.
+    req_base : pd.Timestamp
+        Requested base (initialization) time; expected to be naive and at
+        second precision.
+
+    Returns
+    -------
+    pd.Timestamp
+        The matched base time (naive, second precision).
+        Note: the current implementation ends with `.to_pydatetime()`, which
+        actually returns a `datetime.datetime`. Replace that with
+        `pd.Timestamp(req_base)` to keep the annotated return type.
+
+    Raises
+    ------
+    ValueError
+        If 'base_time' is missing or no suitable match is found.
+
+    Notes
+    -----
+    All dataset base times are made naive (`tz_localize(None)`) and trimmed to
+    second precision (microseconds set to 0) before comparison.
     """
-    results = []
+    if "base_time" not in ds.coords:
+        raise ValueError("Dataset is missing 'base_time' coordinate.")
 
-    if index.lower() == "fopi":
-        for t in ds.time.values:
-            valid_time = base_time + timedelta(hours=float(t))
-            if valid_time.date() == forecast_init.date():
-                lead_hours = (valid_time - base_time).total_seconds() / 3600
-                results.append({
-                    "valid_time": valid_time,
-                    "lead_hours": lead_hours
-                })
+    # Enforce 00Z if that's the only valid cycle in your data
+    if req_base.hour != 0:
+        raise ValueError(
+            f"Expected base_time at 00Z; got {req_base.isoformat(timespec='seconds')}."
+        )
 
-    elif index.lower() == "pof":
-        for t in ds.time.values:
-            valid_time = pd.to_datetime(t).to_pydatetime()
-            if valid_time.date() == forecast_init.date():
-                lead_hours = (valid_time - base_time).total_seconds() / 3600
-                results.append({
-                    "valid_time": valid_time,
-                    "lead_hours": lead_hours
-                })
-                break  # POF gives only one forecast per day, so keep just the first
+    # Normalize dataset coordinate values to naive, second precision
+    base_vals = pd.to_datetime(ds["base_time"].values)
+    base_vals = pd.to_datetime(
+        [pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals]
+    )
 
-    return results
+    match_idx = np.where(base_vals == req_base)[0]
+    if match_idx.size == 0:
+        same_day = [bv for bv in base_vals if bv.date() == req_base.date()]
+        hint = ", ".join(pd.Timestamp(x).isoformat(timespec="seconds") for x in same_day[:5])
+        raise ValueError(
+            f"base_time '{req_base.isoformat(timespec='seconds')}' not found (00Z only). "
+            + (f"Available that date: {hint}" if same_day else "No base_time on that date.")
+        )
+
+    # Return as pandas Timestamp (naive, second precision)
+    return pd.Timestamp(base_vals[match_idx[0]])
 
 
+def _match_forecast_time(ds: xr.Dataset, matched_base: pd.Timestamp, req_fcst: pd.Timestamp) -> pd.Timestamp:
+    """
+    Match a requested forecast time to the Dataset's 'forecast_time' coordinate for
+    a specific base time.
 
+    This performs an exact label match at second precision against the list of
+    forecast times available for `matched_base`. If no match is found, a helpful
+    error is raised showing a few available examples.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset containing 'base_time' and 'forecast_time' coordinates.
+    matched_base : pd.Timestamp
+        The already-matched base (initialization) time, expected to be timezone-naive
+        and trimmed to second precision.
+    req_fcst : pd.Timestamp
+        Requested forecast valid time, expected to be timezone-naive and at
+        second precision.
+
+    Returns
+    -------
+    pd.Timestamp
+        The matched forecast time (naive, second precision). On success this is the
+        same value as `req_fcst`.
+
+    Raises
+    ------
+    ValueError
+        If 'forecast_time' is missing in `ds`, or if `req_fcst` is not present for
+        the given `matched_base`.
+
+    Notes
+    -----
+    - Dataset forecast times are normalized to timezone-naive, second precision
+      before comparison.
+    - Only exact matches are supported
+    """
+    if "forecast_time" not in ds.coords:
+        raise ValueError("Dataset is missing 'forecast_time' coordinate.")
+
+    ds_bt = ds.sel(base_time=matched_base)
+    fcst_vals = pd.to_datetime(ds_bt["forecast_time"].values)
+    fcst_vals = [pd.Timestamp(x).tz_localize(None).replace(microsecond=0) for x in fcst_vals]
+
+    try:
+        next(i for i, v in enumerate(fcst_vals) if v == req_fcst)
+    except StopIteration:
+        hint = ", ".join(pd.Timestamp(x).isoformat(timespec="seconds") for x in fcst_vals[:5])
+        raise ValueError(
+            f"forecast_time '{req_fcst.isoformat()}' not found for base_time '{matched_base.isoformat()}'. "
+            f"Available examples: {hint}"
+        )
+    return req_fcst
