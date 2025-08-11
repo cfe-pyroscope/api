@@ -1,11 +1,11 @@
 import os
+import socket
 from pathlib import Path
 from config.config import settings
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import available_dates, by_date, by_forecast, heatmap, latest_date
-
 
 
 app = FastAPI(
@@ -24,6 +24,7 @@ app.add_middleware(
     expose_headers=["X-Extent-3857", "X-Scale-Min", "X-Scale-Max"],
 )
 
+
 @app.get("/")
 def root():
     return {"message": "FastAPI is working"}
@@ -36,7 +37,5 @@ app.include_router(by_forecast.router, prefix=API)
 app.include_router(heatmap.router, prefix=API)
 app.include_router(latest_date.router, prefix=API)
 
-
-# This enables debug mode through VSCode and PyCharm
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8090, reload=True, log_level="info")
+    uvicorn.run("main:app", host="127.0.0.1", port=PORT, reload=True, log_level="info")

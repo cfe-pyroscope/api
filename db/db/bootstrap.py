@@ -1,7 +1,7 @@
 import os
 from sqlmodel import Session, select
 from db.db.session import engine
-from app.utils.file_scanner import scan_storage_files
+from db.file_scanner import scan_storage_files
 from config.config import settings
 
 

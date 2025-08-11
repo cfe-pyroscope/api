@@ -6,7 +6,7 @@ from config.config import settings
 from config.logging_config import logger
 
 
-def load_zarr(index: str, base_time: str) -> xr.Dataset:
+def _load_zarr(index: str, base_time: str) -> xr.Dataset:
     """
     Load a Zarr store for the NetCDF file closest to the given base_time.
 
@@ -23,7 +23,10 @@ def load_zarr(index: str, base_time: str) -> xr.Dataset:
     for attempt in range(retries):
         try:
             path = settings.ZARR_PATH / index / f"{index}.zarr"
-            ds = xr.open_zarr(path)
+            try:
+                ds = xr.open_zarr(path, consolidated=True)
+            except Exception:
+                ds = xr.open_zarr(path, consolidated=False)
             break
         except PermissionError as e:
             logger.warning(f"🔄 Zarr file in use for index '{index}', retrying ({attempt + 1}/{retries})...")

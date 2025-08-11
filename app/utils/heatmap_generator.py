@@ -1,72 +1,281 @@
 import io
 import logging
+import pandas as pd
 import numpy as np
+import xarray as xr
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import matplotlib
-from app.utils.zarr_loader import load_zarr
-from app.utils.bounds_utils import extract_spatial_subset, reproject_and_prepare
-from app.utils.time_utils import calculate_time_index
+from app.utils.zarr_loader import _load_zarr
+from app.utils.bounds_utils import _extract_spatial_subset, _reproject_and_prepare
+from app.utils.time_utils import _normalize_times, _match_base_time, _match_forecast_time
 
 matplotlib.use("Agg")
 logger = logging.getLogger("uvicorn")
 
 
-def generate_heatmap_image(index: str, base_time: str, lead_hours: int, bbox: str = None):
+def _slice_field(ds: xr.Dataset, param: str, base_t: pd.Timestamp, fcst_t: pd.Timestamp) -> xr.DataArray:
     """
-    Generate a heatmap image for a specific forecast time and spatial region.
+    Return a 2D spatial slice (lat/lon) of a variable from an xarray Dataset for a
+    given model base time and forecast valid time.
 
-    Parameters:
-        index (str): Dataset identifier (e.g., 'fopi', 'pof').
-        base_time (str): ISO 8601 base time string.
-        lead_hours (int): Forecast lead time in hours from base time.
-        bbox (str, optional): Optional bounding box in EPSG:3857, formatted as 'x_min,y_min,x_max,y_max'.
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset containing the target variable and time coordinates
+        'base_time' and 'forecast_time'.
+    param : str
+        Name of the variable in `ds` to extract (e.g., "MODEL_FIRE").
+    base_t : pd.Timestamp
+        Initialization time (value of the 'base_time' coordinate).
+    fcst_t : pd.Timestamp
+        Forecast valid time (value of the 'forecast_time' coordinate).
 
-    Returns:
-        tuple[io.BytesIO, list[float]]: A tuple containing:
-            - The rendered PNG image as an in-memory BytesIO buffer.
-            - The extent of the image in EPSG:3857 as [left, right, bottom, top].
+    Returns
+    -------
+    xr.DataArray
+        The selected 2D field with spatial dimensions (commonly ('lat', 'lon') or
+        similar), with the variable’s attributes preserved.
+    """
+    return ds[param].sel(base_time=base_t, forecast_time=fcst_t)
+
+
+def _select_first_param(ds: xr.Dataset) -> str:
+    """
+    Return the name of the first data variable in an xarray Dataset.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset to inspect.
+
+    Returns
+    -------
+    str
+        The name of the first data variable according to `ds.data_vars` ordering.
+
+    Raises
+    ------
+    ValueError
+        If the dataset contains no data variables.
+
+    Notes
+    -----
+    In this case "first variable" corresponds to the unique possibile variable
+    """
+    if not ds.data_vars:
+        raise ValueError("Dataset has no data variables.")
+    return list(ds.data_vars.keys())[0]
+
+
+def _log_subset_stats(subset: xr.DataArray) -> None:
+    """
+    Compute and log basic summary statistics for an xarray DataArray subset.
+
+    Parameters
+    ----------
+    subset : xr.DataArray
+        The array to summarize. May be backed by Dask; NaNs are allowed.
+
+    Returns
+    -------
+    None
+
+    Side Effects
+    ------------
+    Logs two INFO-level messages using the module-level `logger`:
+    1) "📊 Subset stats – min: <min>, max: <max>, mean: <mean>"
+    2) "🚩 D - subset shape: <shape>, valid count: <count>"
+
+    Notes
+    -----
+    - Uses xarray reductions (`.min()`, `.max()`, `.mean()`, `.count()`) and calls
+      `.compute()` to realize values, which will trigger Dask execution if the
+      data is lazy.
+    - `valid_count` counts non-NaN elements only.
+    - If `subset` is empty or all-NaN, the reductions may return `nan` and
+      `valid_count` will be 0.
+    """
+    subset_min = float(subset.min().compute())
+    subset_max = float(subset.max().compute())
+    subset_mean = float(subset.mean().compute())
+    valid_count = int(subset.count().compute().values)
+    logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
+    logger.info(f"🚩 D - subset shape: {subset.shape}, valid count: {valid_count}")
+
+
+def _render_from_subset(index: str, subset: xr.DataArray) -> tuple[io.BytesIO, list[float], float, float]:
+    """
+    Reproject a DataArray subset and render it as a heatmap image.
+
+    This helper first calls `_reproject_and_prepare(subset)` to produce a 2D array
+    and its spatial extent, then delegates to `render_heatmap(...)` to create the
+    final image.
+
+    Parameters
+    ----------
+    index : str
+        Identifier/label for the rendered layer (passed through to `render_heatmap`).
+    subset : xr.DataArray
+        Input data to visualize. Expected to represent a single 2D field that can
+        be reprojected to a regular grid.
+
+    Returns
+    -------
+    tuple[io.BytesIO, list[float], float, float]
+        - In-memory image buffer (e.g., PNG) of the heatmap.
+        - Spatial extent as `[xmin, ymin, xmax, ymax]`.
+        - Minimum data value used for rendering (vmin).
+        - Maximum data value used for rendering (vmax).
+
+    Side Effects
+    ------------
+    Logs an INFO-level message with the prepared array shape and extent.
+
+    Notes
+    -----
+    - The exact output format and color mapping are determined by `render_heatmap`.
+    - Any errors arising from reprojection or rendering propagate to the caller.
+    """
+    data, extent = _reproject_and_prepare(subset)
+    logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
+    return render_heatmap(index, data, extent)
+
+
+def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox: str = None):
+    """
+    Generate a heatmap image for a single forecast slice, optionally clipped to a
+    bounding box.
+
+    This orchestrates the full pipeline:
+    load → time-match → slice → spatial subset → stats → reproject → render.
+
+    Parameters
+    ----------
+    index : str
+        Dataset identifier used by `_load_zarr` (and passed through to rendering).
+    base_time : str
+        Requested model initialization time. Expected to be an ISO 8601–like string
+        (e.g., "2025-08-11T00:00Z"); it is normalized by `_normalize_times`.
+    forecast_time : str
+        Requested forecast valid time, same formatting expectations as `base_time`;
+        normalized and matched to dataset coordinates.
+    bbox : str, optional
+        Spatial bounding box used by `_extract_spatial_subset`. Expected format
+        "minx,miny,maxx,maxy" in the dataset’s CRS (commonly lon/lat in WGS84).
+        If omitted, the full 2D field is used.
+
+    Returns
+    -------
+    tuple[io.BytesIO, list[float], float, float]
+        - In-memory image buffer (e.g., PNG) containing the rendered heatmap.
+        - Spatial extent as [xmin, ymin, xmax, ymax].
+        - vmin: minimum data value used for the color scale.
+        - vmax: maximum data value used for the color scale.
+
+    Raises
+    ------
+    Exception
+        Any errors from I/O, time matching, selection, reprojection, or rendering
+        are logged with stack traces and re-raised. Examples include:
+        - File/connection errors while loading Zarr
+        - Value/Key errors during time/variable selection
+        - Projection/resampling failures
+
+    Side Effects
+    ------------
+    - Logs progress and debug information at INFO level (steps A–E) via the
+      module-level `logger`.
+    - Computes and logs subset statistics via `_log_subset_stats`.
+    - Forces data materialization for the spatial subset (`.load()`), which may
+      trigger Dask execution.
+
+    Workflow Details
+    ----------------
+    1) `_load_zarr(index, base_time)` loads the dataset.
+    2) `_select_first_param(ds)` chooses the variable to render.
+    3) `_normalize_times(...)` and `_match_*_time(...)` align requested times to
+       dataset coordinates.
+    4) `_slice_field(...)` extracts the 2D (lat, lon) field for those times.
+    5) `_extract_spatial_subset(..., bbox)` crops the field and loads it into memory.
+    6) `_reproject_and_prepare(...)` reprojects data and returns the extent.
+    7) `render_heatmap(...)` produces the final image and value range.
     """
     try:
         logger.info("🚩 A - loading zarr")
-        ds = load_zarr(index, base_time)
+        ds = _load_zarr(index, base_time)
 
-        param = list(ds.data_vars.keys())[0]
+        param = _select_first_param(ds)
         logger.info(f"🚩 B - param selected: {param}")
 
-        time_index = calculate_time_index(ds, index, base_time, lead_hours)
-        logger.info(f"🚩 C - time index: {time_index}")
+        req_base, req_fcst = _normalize_times(base_time, forecast_time)
+        matched_base = _match_base_time(ds, req_base)
+        matched_fcst = _match_forecast_time(ds, matched_base, req_fcst)
+        logger.info(f"🚩 C - indices: base={matched_base.isoformat()}, forecast={matched_fcst.isoformat()}")
 
-        subset = extract_spatial_subset(ds, param, time_index, bbox).load()
+        da_at_time = _slice_field(ds, param, matched_base, matched_fcst)
 
-        subset_min = float(subset.min().compute())
-        subset_max = float(subset.max().compute())
-        subset_mean = float(subset.mean().compute())
-        logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
-        valid_count = int(subset.count().compute().values)
-        logger.info(f"🚩 D - subset shape: {subset.shape}, valid count: {valid_count}")
+        subset = _extract_spatial_subset(da_at_time, bbox=bbox).load()
+        _log_subset_stats(subset)
 
-        data, extent = reproject_and_prepare(subset)
-        logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
-
-        image_stream, extent, vmin, vmax = render_heatmap(index, data, extent)
+        image_stream, extent, vmin, vmax = _render_from_subset(index, subset)
         return image_stream, extent, vmin, vmax
 
-    except Exception as e:
+    except Exception:
         logger.exception("🔥 generate_heatmap_image failed")
         raise
 
 
 def render_heatmap(index, data, extent):
     """
-    Render a heatmap image from raster data using a predefined color map.
-    Ocean areas (zero/NaN values) will be transparent.
-    Parameters:
-        index (str): Dataset identifier (e.g., 'fopi', 'pof').
-        data (np.ndarray): 2D array of raster values in EPSG:3857.
-        extent (list[float]): Bounding box in EPSG:3857 [left, right, bottom, top].
-    Returns:
-        tuple[io.BytesIO, list[float]]: A PNG image stream and the corresponding extent.
+    Render a transparent-background heatmap PNG from a 2D raster array.
+
+    The image uses a predefined sequential colormap with transparency for masked
+    pixels (NaN/Inf/zero), so ocean or nodata areas are invisible.
+
+    Parameters
+    ----------
+    index : str
+        Dataset identifier that selects the color scaling strategy:
+        - "pof": percentile-based scaling (5th–95th) with floors/ceilings.
+        - "fopi": fixed range [0, 1].
+        - other: robust scaling using 2nd–98th percentiles.
+    data : np.ndarray
+        2D array of raster values in EPSG:3857 (Web Mercator).
+    extent : list[float]
+        Spatial bounds in EPSG:3857 as [xmin, xmax, ymin, ymax]
+        (aka [left, right, bottom, top]). Passed to `imshow`.
+
+    Returns
+    -------
+    tuple[io.BytesIO, list[float], float, float]
+        - In-memory PNG image stream (transparent background).
+        - The extent used for rendering, as [xmin, xmax, ymin, ymax].
+        - vmin: minimum value mapped to the colormap.
+        - vmax: maximum value mapped to the colormap.
+
+    Notes
+    -----
+    - Pixels where `data == 0`, `NaN`, or `Inf` are masked and rendered fully
+      transparent. The colormap's "bad" color is also transparent.
+    - Figure size is derived from `extent` to preserve aspect ratio; axes and
+      background are hidden and fully transparent.
+    - Scaling:
+      - **POF**: vmin = max(p5, 0.001), vmax = max(p95, 0.05).
+      - **FOPI**: vmin = 0, vmax = 1.
+      - **Default**: vmin = 2nd percentile, vmax = 98th percentile.
+      If no finite values are present, falls back to vmin=0, vmax=1.
+    - Uses `origin="upper"` in `imshow`.
+
+    Side Effects
+    ------------
+    Logs INFO/WARNING messages (extent used, chosen display range, and, for "pof",
+    the relative position of the 0.05 threshold) via the module-level `logger`.
+
+    Raises
+    ------
+    Any exceptions from NumPy/Matplotlib (e.g., invalid shapes or extents) are not
+    caught and will propagate to the caller.
     """
     x_range = extent[1] - extent[0]
     y_range = extent[3] - extent[2]

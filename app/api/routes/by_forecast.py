@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Query, Path, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from datetime import datetime, timedelta
-from app.utils.zarr_loader import load_zarr
-from app.utils.time_utils import calculate_valid_times
-from app.utils.file_scanner import scan_storage_files
+from app.utils.zarr_loader import _load_zarr
+from db.file_scanner import scan_storage_files
 from app.utils.heatmap_generator import generate_heatmap_image
 from sqlmodel import Session
 from db.db.session import get_session
@@ -49,8 +48,8 @@ def get_forecast_evolution_steps(
 
         for record in sorted(relevant_records, key=lambda r: r.datetime):
             base_time_iso = record.datetime.isoformat() + "Z"
-            ds = load_zarr(index, base_time_iso)
-            steps = calculate_valid_times(ds, index, record.datetime, forecast_init_dt)
+            ds = _load_zarr(index, base_time_iso)
+            steps = []
 
             for step in steps:
                 all_steps.append({
@@ -131,7 +130,7 @@ def get_forecast_heatmap_image(
         response.headers["X-Extent-3857"] = ",".join(map(str, extent))
         response.headers["X-Scale-Min"] = str(vmin)
         response.headers["X-Scale-Max"] = str(vmax)
-        logger.info(f"✅ Heatmap image generated for {index} [{forecast_init}, step={step}, bbox={bbox}]")
+        logger.info(f"✅  Heatmap image generated for {index} [{forecast_init}, step={step}, bbox={bbox}]")
         return response
 
     except Exception as e:
