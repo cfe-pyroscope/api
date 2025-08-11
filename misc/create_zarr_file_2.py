@@ -10,30 +10,34 @@ def merge_netcdf_to_zarr(index: str):
     """
     Convert a sequence of large NetCDF forecast files into a single, chunked Zarr store (Zarr v2 consolidated).
 
-        For index == "fopi" (very large >4GB files on laptop):
-          - Apply memory-safe, small lat/lon chunks and time chunk=1 to avoid >2GB codec limits and big boolean masks.
-          - Write incrementally (first file mode='w', then append_dim='base_time').
+    For index == "fopi" (very large >4GB files on laptop):
+    - Apply memory-safe, small lat/lon chunks and time chunk=1 to avoid >2GB codec limits and big boolean masks.
+    - Automatically wrap longitudes >180° to the [-180, 180) range and sort the longitude coordinate.
+    - Write incrementally (first file mode='w', then append_dim='base_time').
 
-        For index != "fopi" (e.g., "pof"):
-          - Use a faster path with coarser chunking (full lat/lon, time chunk=1), still writing incrementally.
-          - This is faster for moderate-sized files while remaining safe.
+    For index != "fopi" (e.g., "pof"):
+    - Use a faster path with coarser chunking (full lat/lon, time chunk=1), still writing incrementally.
+    - This is faster for moderate-sized files while remaining safe.
 
-        Common steps:
-          1) Add 'base_time' from first timestamp of 'time'.
-          2) Rename 'time' → 'forecast_time'; enforce order ('base_time','forecast_time','lat','lon').
-          3) Consolidate metadata at the end to create '.zmetadata'.
+    Common steps:
+    1) Add 'base_time' from first timestamp of 'time'.
+    2) Rename 'time' → 'forecast_time'; enforce order ('base_time','forecast_time','lat','lon').
+    3) Consolidate metadata at the end to create '.zmetadata'.
 
     Advantages of this approach:
-        - Handles very large files on a laptop without blowing memory.
-        - Produces a standard Zarr v2 consolidated store.
-        - Allows lazy reads (e.g., select one base_time).
+    - Handles very large files on a laptop without blowing memory.
+    - Corrects longitude coordinates for datasets with values >180°, improving spatial consistency.
+    - Produces a standard Zarr v2 consolidated store.
+    - Allows lazy reads (e.g., select one base_time).
 
     Requirements before running:
-        - Ensure that all NetCDF files have matching variable names and dimension orders.
-        - For "fopi", lat/lon chunk sizes are auto-computed to keep chunks small.
+    - Ensure that all NetCDF files have matching variable names and dimension orders.
+    - For "fopi", lat/lon chunk sizes are auto-computed to keep chunks small.
+    - For "fopi", if longitude coordinates exceed 180°, they will be shifted and sorted.
     """
 
     print(f"Starting Zarr conversion for index='{index}'")
+
     # Paths for input NetCDF files and output Zarr store
     data_path = settings.NC_PATH / index  # Directory containing NetCDF files
     output_zarr_path = settings.ZARR_PATH / index / f"{index}.zarr"  # Output Zarr store
@@ -95,6 +99,16 @@ def merge_netcdf_to_zarr(index: str):
             engine="netcdf4"
         )
 
+        # wrap/shift longitudes to [-180, 180) for fopi if needed ---
+        if index == "fopi" and ('lon' in ds.coords) and (float(ds['lon'].max()) > 180):
+            import numpy as np  # local import to avoid touching global imports
+            lons = ds['lon'].values
+            shifted_lons = (lons + 180) % 360 - 180
+            sort_idx = np.argsort(shifted_lons)
+            ds = ds.isel(lon=sort_idx)
+            ds = ds.assign_coords(lon=shifted_lons[sort_idx])
+            print("Applied longitude wrap to [-180, 180) and sorted longitude coordinate.")
+
         # Consistency checks
         if i == 1:
             expected_vars = set(ds.data_vars.keys())
@@ -135,7 +149,7 @@ def merge_netcdf_to_zarr(index: str):
                 output_zarr_path,
                 mode='w',
                 consolidated=False,  # consolidate once at the end
-                zarr_format=2        # force Zarr v2 for compatibility + consolidation
+                zarr_format=2  # force Zarr v2 for compatibility + consolidation
             )
         # Subsequent files -> append along base_time
         else:

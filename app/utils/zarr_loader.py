@@ -114,7 +114,6 @@ def convert_nc_to_zarr(index: str, base_time: str, force=False) -> Path:
     return zarr_store
 
 
-
 def load_zarr(index: str, base_time: str) -> xr.Dataset:
     """
     Load a Zarr store for the NetCDF file closest to the given base_time.
@@ -131,7 +130,7 @@ def load_zarr(index: str, base_time: str) -> xr.Dataset:
 
     for attempt in range(retries):
         try:
-            path = convert_nc_to_zarr(index, base_time)
+            path = settings.ZARR_PATH / index / f"{index}.zarr"
             ds = xr.open_zarr(path)
             break
         except PermissionError as e:
@@ -141,12 +140,7 @@ def load_zarr(index: str, base_time: str) -> xr.Dataset:
                 raise
             time.sleep(delay_sec)
 
-    if index == "fopi" and 'lon' in ds.coords and ds.lon.max() > 180:
-        lons = ds.lon.values
-        shifted_lons = (lons + 180) % 360 - 180
-        sort_idx = np.argsort(shifted_lons)
-        ds = ds.isel(lon=sort_idx)
-        ds['lon'].values[:] = shifted_lons[sort_idx]
+
 
     return ds
 
