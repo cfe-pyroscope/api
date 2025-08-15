@@ -9,6 +9,7 @@ from config.logging_config import logger
 
 router = APIRouter()
 
+
 @router.get("/{index}/by_forecast")
 def get_forecast_evolution_steps(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
@@ -50,7 +51,7 @@ def get_forecast_evolution_steps(
         404 if no forecast steps are found in the requested range.
     """
     try:
-        ds = _load_zarr(index, base_time)
+        ds = _load_zarr(index)
 
         # Parse the requested verification time to timezone‑naive, second precision (UTC)
         verification = _parse_naive(base_time)
@@ -107,7 +108,7 @@ def get_forecast_heatmap_image(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)"),
     step: int = Query(..., description="Forecast lead step in hours (e.g., 0, 3, ..., 240 for FOPI; 24, ..., 240 for POF)"),
-    bbox: str = Query(None, description="Bounding box in EPSG:3857 as 'x_min,y_min,x_max,y_max' (optional).")
+    bbox: str = Query(None, description="Bounding box in EPSG:3857 as 'x_min,y_min,x_max,y_max' (e.g., '-914798.3545169897%2C4523543.333916732%2C-460150.91027676116%2C4778843.008389221').")
 ):
     """
     Generate and return a forecast heatmap image as a PNG.

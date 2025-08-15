@@ -21,9 +21,35 @@ def _iso_utc(dt_like) -> str:
 
 def _parse_naive(dt_str: str) -> pd.Timestamp:
     """
-    Parse an ISO-like datetime string into a naive (timezone-unaware) pandas Timestamp.
-    Accepts with/without 'Z'; if tz-aware, converts to UTC before dropping tz info.
-    Normalizes to whole-second precision.
+    Parse an ISO 8601-like datetime string into a timezone-naive pandas Timestamp in UTC.
+
+    This function parses the input string into a pandas Timestamp and ensures the
+    result is timezone-unaware (naive) while preserving the actual moment in time.
+    If the parsed datetime is timezone-aware (e.g., contains 'Z' for UTC or an offset
+    like '+02:00'), it is first converted to UTC, then the timezone information is
+    removed. If the input is already naive, it is left as-is except for microsecond
+    truncation.
+
+    Parameters
+    ----------
+    dt_str : str
+        ISO 8601-like datetime string, with or without timezone information.
+
+    Returns
+    -------
+    pd.Timestamp
+        A naive pandas Timestamp in UTC-equivalent time, with microseconds set to zero.
+
+    Notes
+    -----
+    - This function differs from `_parse_iso_naive` in that it normalizes all
+      timezone-aware datetimes to UTC before removing the timezone, ensuring
+      consistent absolute time representation.
+    - Examples:
+        >>> _parse_naive("2025-07-11T12:34:56.789Z")
+        Timestamp('2025-07-11 12:34:56')
+        >>> _parse_naive("2025-07-11T12:34:56+02:00")
+        Timestamp('2025-07-11 10:34:56')  # converted to UTC first
     """
     ts = pd.to_datetime(dt_str, errors="raise")
     if ts.tz is not None:
@@ -32,6 +58,39 @@ def _parse_naive(dt_str: str) -> pd.Timestamp:
         ts = ts.tz_localize(None)
     return pd.Timestamp(ts.replace(microsecond=0))
 
+
+def _parse_iso_naive(s: str) -> pd.Timestamp:
+    """
+    Parse an ISO 8601-like datetime string into a naive (timezone-unaware) pandas Timestamp.
+
+    This function drops any timezone information from the parsed datetime without
+    converting it to UTC. If the input string is timezone-aware (e.g., contains an
+    offset like '+02:00' or 'Z'), the offset is simply removed and the resulting
+    naive timestamp retains the same local clock time. The timestamp is truncated
+    to whole-second precision by setting microseconds to zero.
+
+    Parameters
+    ----------
+    s : str
+        An ISO 8601-like datetime string (with or without timezone information).
+
+    Returns
+    -------
+    pd.Timestamp
+        A timezone-naive pandas Timestamp with microseconds removed.
+
+    Notes
+    -----
+    - This function does not normalize to UTC. Use a conversion function if you
+      require a consistent UTC-based naive timestamp.
+    - Examples:
+        >>> _parse_iso_naive("2025-07-11T12:34:56.789Z")
+        Timestamp('2025-07-11 12:34:56')
+        >>> _parse_iso_naive("2025-07-11T12:34:56+02:00")
+        Timestamp('2025-07-11 12:34:56')
+    """
+    ts = pd.Timestamp(s)
+    return (ts.tz_localize(None) if ts.tz is not None else ts).replace(microsecond=0)
 
 def _normalize_times(base_time: str, forecast_time: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     """

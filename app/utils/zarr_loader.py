@@ -6,7 +6,7 @@ from config.config import settings
 from config.logging_config import logger
 
 
-def _load_zarr(index: str, base_time: str) -> xr.Dataset:
+def _load_zarr(index: str) -> xr.Dataset:
     """
     Load a Zarr store for the NetCDF file closest to the given base_time.
 
