@@ -81,7 +81,7 @@ async def get_forecast_steps(
       `_iso_utc` is used only for output serialization.
     """
     try:
-        ds = _load_zarr(index, base_time)
+        ds = _load_zarr(index)
 
         # Parse requested base_time (accepts with/without Z; normalize to naive seconds)
         requested = _parse_naive(base_time)

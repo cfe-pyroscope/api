@@ -192,7 +192,7 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
 
     Workflow Details
     ----------------
-    1) `_load_zarr(index, base_time)` loads the dataset.
+    1) `_load_zarr(index)` loads the dataset.
     2) `_select_first_param(ds)` chooses the variable to render.
     3) `_normalize_times(...)` and `_match_*_time(...)` align requested times to
        dataset coordinates.
@@ -203,7 +203,7 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
     """
     try:
         logger.info("🚩 A - loading zarr")
-        ds = _load_zarr(index, base_time)
+        ds = _load_zarr(index)
 
         param = _select_first_param(ds)
         logger.info(f"🚩 B - param selected: {param}")
