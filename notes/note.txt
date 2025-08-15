@@ -26,3 +26,30 @@ $env:PROJ_LIB = "C:..."
 git checkout marina-dev
 git fetch origin
 git merge origin/main
+
+
+
+pof.zarr structure:
+<xarray.Dataset>
+Dimensions:        (forecast_time: 10, lat: 2560, lon: 5136, base_time: 11)
+Coordinates:
+  * forecast_time  (forecast_time) datetime64[ns] 2025-07-11 ... 2025-07-20
+  * lat            (lat) float64 89.95 89.88 89.81 ... -89.81 -89.88 -89.95
+  * lon            (lon) float64 -180.0 -179.9 -179.9 ... 179.8 179.9 179.9
+  * base_time      (base_time) datetime64[ns] 2025-07-01 ... 2025-07-11
+Data variables:
+    MODEL_FIRE     (base_time, forecast_time, lat, lon) float64 dask.array<chunksize=(1, 1, 2560, 5136), meta=np.ndarray>
+
+
+
+
+fopi.zarr structure:
+<xarray.Dataset>
+Dimensions:           (lat: 2560, forecast_time: 80, lon: 5136, base_time: 11)
+Coordinates:
+  * lat               (lat) float64 89.95 89.88 89.81 ... -89.81 -89.88 -89.95
+  * forecast_time     (forecast_time) datetime64[ns] 2025-07-11 ... 2025-07-2...
+  * lon               (lon) float64 0.0 0.07009 0.1402 ... 359.8 359.9 359.9
+  * base_time         (base_time) datetime64[ns] 2025-07-01 ... 2025-07-11
+Data variables:
+    param100.128.192  (base_time, forecast_time, lat, lon) float32 dask.array<chunksize=(1, 1, 722, 1448), meta=np.ndarray>
