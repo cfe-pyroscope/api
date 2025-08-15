@@ -42,7 +42,3 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-
-# To solve my conflict with two versions of postgres, don't move this library from here
-# from pyproj import datadir
-# print(f"✅ pyproj using PROJ_LIB: {datadir.get_data_dir()}")

@@ -1,77 +1,111 @@
-from fastapi import APIRouter, Query, Path, Depends
-from fastapi.responses import JSONResponse, StreamingResponse
-from datetime import datetime, timedelta
+from fastapi import APIRouter, Query, Path, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from datetime import timedelta
+import pandas as pd
+
 from app.utils.zarr_loader import _load_zarr
-from db.file_scanner import scan_storage_files
-from app.utils.heatmap_generator import generate_heatmap_image
-from sqlmodel import Session
-from db.db.session import get_session
-from db.crud.db_operations import get_all_records
-from config.config import settings
+from app.utils.time_utils import _parse_naive, _iso_utc
 from config.logging_config import logger
 
-
 router = APIRouter()
-
 
 @router.get("/{index}/by_forecast")
 def get_forecast_evolution_steps(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    forecast_init: str = Query(..., description="ISO format base forecast date (e.g., 2025-07-11T00:00:00Z)"),
-    session: Session = Depends(get_session)  # Dependency-injected session
-):
-    """
-    FORECAST EVOLUTION SYSTEM
-        - The user selects a forecast initialization time → forecast_init
-        - The system must look back 9 days and:
-                - For each base forecast time (e.g., from July 2 to July 11),
-                - Extract only the forecasted values for the selected forecast_init time (i.e., what did the model predict for that moment in time),
-                - Compute the lead time = forecast_init - base_time
+    base_time: str = Query(
+        ..., description="Verification time ISO8601 (e.g., '2025-07-11T00:00:00' or '2025-07-11T00:00:00Z')."
+    ),
+) -> dict:
+    """Retrieve the temporal sequence of forecast targets for a given verification time.
+
+    This endpoint generates the list of forecast time steps covering the 9 days leading
+    up to a selected **verification time** (``base_time`` in the request). The temporal
+    resolution depends on the dataset:
+
+    - **POF**: daily targets (one per day).
+    - **FOPI**: 3‑hourly targets (eight per day).
+
+    Parameters
+    ----------
+    index : str
+        Dataset identifier, either ``"pof"`` or ``"fopi"``.
+    base_time : str
+        Verification time in ISO8601 format (e.g., ``"2025-07-11T00:00:00Z"``).
+    session : Session
+        Database session (injected by FastAPI, currently unused).
+
+    Returns
+    -------
+    dict
+        Dictionary with:
+        - ``index``: dataset name (fopi or pof).
+        - ``base_time``: selected verification time in ISO8601 UTC.
+        - ``forecast_steps``: list of ISO8601 UTC timestamps representing forecast
+          targets within the 9‑day lookback window at the dataset's native temporal resolution.
+
+    Raises
+    ------
+    HTTPException
+        400 if the index is unsupported or required coordinates are missing.
+        404 if no forecast steps are found in the requested range.
     """
     try:
-        forecast_init_dt = datetime.fromisoformat(forecast_init.replace("Z", ""))
-        start_date = forecast_init_dt - timedelta(days=9)
+        ds = _load_zarr(index, base_time)
 
-        logger.info(f"🔍 Selected forecast_init: {forecast_init_dt.isoformat()} — scanning from {start_date.date()}")
+        # Parse the requested verification time to timezone‑naive, second precision (UTC)
+        verification = _parse_naive(base_time)
+        start_date = verification - timedelta(days=9)
+        logger.info(
+            f"🔍 Selected verification (target) time: {_iso_utc(verification)} — building steps in [{start_date}, {verification}]"
+        )
 
-        records = get_all_records(session, index)
-        logger.info(f"📋 Retrieved {len(records)} records from DB for dataset '{index}'")
-        # Filter records within the time range
-        relevant_records = [
-            record for record in records
-            if start_date.date() <= record.datetime.date() <= forecast_init_dt.date()
-        ]
+        name = index.lower()
+        if name == "pof":
+            # POF is daily: generate daily targets from start_date..verification (inclusive)
+            start_d = pd.Timestamp(start_date.date())
+            end_d = pd.Timestamp(verification.date())
+            rng = pd.date_range(start=start_d, end=end_d, freq="D")
+            forecast_steps = [_iso_utc(ts.to_pydatetime()) for ts in rng]
+        elif name == "fopi":
+            # FOPI is 3‑hourly: align start to the nearest 3‑hour boundary <= start_date
+            start_ts = pd.Timestamp(start_date)
+            aligned = start_ts.floor("3H")
+            rng = pd.date_range(start=aligned, end=pd.Timestamp(verification), freq="3H")
+            forecast_steps = [_iso_utc(ts.to_pydatetime()) for ts in rng]
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported index '{index}'. Use 'pof' or 'fopi'.")
 
-        logger.info(f"📂 Found {len(relevant_records)} matching records for index '{index}'")
+        if not forecast_steps:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No forecast targets could be generated in the range {start_date.isoformat()} to "
+                    f"{verification.isoformat()} for index '{index}'."
+                ),
+            )
 
-        all_steps = []
+        logger.info(
+            "🌋🌋🌋 FORECAST steps (by_forecast): first=%s last=%s count=%d",
+            forecast_steps[0], forecast_steps[-1], len(forecast_steps),
+        )
+        return {
+            "index": index,
+            "base_time": _iso_utc(verification),
+            "forecast_steps": forecast_steps,
+        }
 
-        for record in sorted(relevant_records, key=lambda r: r.datetime):
-            base_time_iso = record.datetime.isoformat() + "Z"
-            ds = _load_zarr(index, base_time_iso)
-            steps = []
-
-            for step in steps:
-                all_steps.append({
-                    "base_time": base_time_iso,
-                    "lead_hours": step["lead_hours"],
-                    "time": step["valid_time"].isoformat() + "Z"
-                })
-
-        all_steps.sort(key=lambda x: x["lead_hours"])
-        logger.info("🌋🌋🌋 FORECAST steps: %s", all_steps)
-        return {"forecast_steps": all_steps}
-
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("❌ Failed to get forecast steps")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        logger.exception("❌ Failed to get forecast evolution steps (by_forecast)")
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 
 @router.get("/{index}/by_forecast/heatmap/image")
 def get_forecast_heatmap_image(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    forecast_init: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)"),
+    base_time: str = Query(..., description="Forecast initialization time (ISO 8601, e.g. 2025-07-05T00:00:00Z)"),
     step: int = Query(..., description="Forecast lead step in hours (e.g., 0, 3, ..., 240 for FOPI; 24, ..., 240 for POF)"),
     bbox: str = Query(None, description="Bounding box in EPSG:3857 as 'x_min,y_min,x_max,y_max' (optional).")
 ):
@@ -84,7 +118,7 @@ def get_forecast_heatmap_image(
 
     Args:
         index (str): Dataset identifier ('fopi' or 'pof').
-        forecast_init (str): ISO 8601 forecast initialization time.
+        base_time (str): ISO 8601 forecast initialization time.
         step (int): Forecast lead time in hours.
         bbox (str, optional): Optional bounding box in EPSG:3857 format (x_min,y_min,x_max,y_max).
 
@@ -115,7 +149,7 @@ def get_forecast_heatmap_image(
         response.headers["X-Extent-3857"] = "0,0,0,0"
         response.headers["X-Scale-Min"] = "0"
         response.headers["X-Scale-Max"] = "0"
-        logger.info(f"⚠️ Returned empty image for {index} [{forecast_init}, step={step}, bbox={bbox}]")
+        logger.info(f"⚠️ Returned empty image for {index} [{base_time}, step={step}, bbox={bbox}]")
         return response
 
     except Exception as e:
@@ -124,13 +158,13 @@ def get_forecast_heatmap_image(
     """try:
         # Under the hood, everything else (bbox, projection, scaling) works as in current solution
         image_stream, extent, vmin, vmax = generate_heatmap_image(
-            index, forecast_init, step, bbox
+            index, base_time, step, bbox
         )
         response = StreamingResponse(image_stream, media_type="image/png")
         response.headers["X-Extent-3857"] = ",".join(map(str, extent))
         response.headers["X-Scale-Min"] = str(vmin)
         response.headers["X-Scale-Max"] = str(vmax)
-        logger.info(f"✅  Heatmap image generated for {index} [{forecast_init}, step={step}, bbox={bbox}]")
+        logger.info(f"✅  Heatmap image generated for {index} [{base_time}, step={step}, bbox={bbox}]")
         return response
 
     except Exception as e:

@@ -57,7 +57,7 @@ async def get_forecast_steps(
     dict
         Example:
         {
-          "location": [<lat_center>, <lon_center>],
+          "index": dataset name (fopi or pof),
           "base_time": "2025-07-11T00:00:00Z",
           "forecast_steps": [
             "2025-07-11T00:00:00Z",
@@ -82,14 +82,6 @@ async def get_forecast_steps(
     """
     try:
         ds = _load_zarr(index, base_time)
-
-        # Sanity
-        for coord_name in ("base_time", "forecast_time", "lat", "lon"):
-            if coord_name not in ds.coords:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Coordinate '{coord_name}' not found in {index}.zarr dataset."
-                )
 
         # Parse requested base_time (accepts with/without Z; normalize to naive seconds)
         requested = _parse_naive(base_time)
@@ -146,12 +138,8 @@ async def get_forecast_steps(
 
         forecast_steps = [_iso_utc(t) for t in out_times]
 
-        # Grid center
-        lat_center = float(ds["lat"].mean().values)
-        lon_center = float(ds["lon"].mean().values)
-
         return {
-            "location": [lat_center, lon_center],
+            "index": index,
             "base_time": _iso_utc(matched_base),
             "forecast_steps": forecast_steps,
         }
