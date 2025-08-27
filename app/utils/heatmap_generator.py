@@ -22,27 +22,43 @@ def _slice_field(ds: xr.Dataset, param: str, base_t: pd.Timestamp, fcst_t: pd.Ti
     Parameters
     ----------
     ds : xr.Dataset
-        Dataset containing the target variable and time coordinates
-        'base_time' and 'forecast_time'.
+        Dataset containing the target variable with coordinates 'base_time' and
+        'forecast_index', and data variable 'forecast_time'.
     param : str
         Name of the variable in `ds` to extract (e.g., "MODEL_FIRE").
     base_t : pd.Timestamp
         Initialization time (value of the 'base_time' coordinate).
     fcst_t : pd.Timestamp
-        Forecast valid time (value of the 'forecast_time' coordinate).
+        Forecast valid time (to be matched against 'forecast_time' data variable).
 
     Returns
     -------
     xr.DataArray
         The selected 2D field with spatial dimensions (commonly ('lat', 'lon') or
-        similar), with the variable’s attributes preserved.
+        similar), with the variable's attributes preserved.
     """
-    return ds[param].sel(base_time=base_t, forecast_time=fcst_t)
+    # First select the base_time
+    ds_at_base = ds.sel(base_time=base_t)
+
+    # Get the forecast_time values for this base_time
+    forecast_times = ds_at_base['forecast_time']
+
+    # Find the closest forecast_time to the requested fcst_t
+    # Convert fcst_t to numpy datetime64 for comparison
+    fcst_t_np = pd.to_datetime(fcst_t).to_datetime64()
+
+    # Find the index of the closest forecast time
+    time_diffs = np.abs(forecast_times.values - fcst_t_np)
+    closest_idx = np.argmin(time_diffs)
+
+    # Select using the forecast_index coordinate
+    return ds_at_base[param].isel(forecast_index=closest_idx)
 
 
 def _select_first_param(ds: xr.Dataset) -> str:
     """
     Return the name of the first data variable in an xarray Dataset.
+    Excludes 'forecast_time' as it's metadata, not a parameter to visualize.
 
     Parameters
     ----------
@@ -52,20 +68,20 @@ def _select_first_param(ds: xr.Dataset) -> str:
     Returns
     -------
     str
-        The name of the first data variable according to `ds.data_vars` ordering.
+        The name of the first data variable according to `ds.data_vars` ordering,
+        excluding 'forecast_time'.
 
     Raises
     ------
     ValueError
-        If the dataset contains no data variables.
-
-    Notes
-    -----
-    In this case "first variable" corresponds to the unique possibile variable
+        If the dataset contains no data variables (excluding 'forecast_time').
     """
-    if not ds.data_vars:
-        raise ValueError("Dataset has no data variables.")
-    return list(ds.data_vars.keys())[0]
+    # Get all data variables except 'forecast_time' which is metadata
+    data_vars = [var for var in ds.data_vars.keys() if var != 'forecast_time']
+
+    if not data_vars:
+        raise ValueError("Dataset has no data variables (excluding 'forecast_time').")
+    return data_vars[0]
 
 
 def _log_subset_stats(subset: xr.DataArray) -> None:
@@ -84,7 +100,7 @@ def _log_subset_stats(subset: xr.DataArray) -> None:
     Side Effects
     ------------
     Logs two INFO-level messages using the module-level `logger`:
-    1) "📊 Subset stats – min: <min>, max: <max>, mean: <mean>"
+    1) "📊 Subset stats — min: <min>, max: <max>, mean: <mean>"
     2) "🚩 D - subset shape: <shape>, valid count: <count>"
 
     Notes
@@ -100,7 +116,7 @@ def _log_subset_stats(subset: xr.DataArray) -> None:
     subset_max = float(subset.max().compute())
     subset_mean = float(subset.mean().compute())
     valid_count = int(subset.count().compute().values)
-    logger.info(f"📊 Subset stats – min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
+    logger.info(f"📊 Subset stats — min: {subset_min}, max: {subset_max}, mean: {subset_mean}")
     logger.info(f"🚩 D - subset shape: {subset.shape}, valid count: {valid_count}")
 
 
@@ -155,14 +171,14 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
     index : str
         Dataset identifier used by `_load_zarr` (and passed through to rendering).
     base_time : str
-        Requested model initialization time. Expected to be an ISO 8601–like string
+        Requested model initialization time. Expected to be an ISO 8601—like string
         (e.g., "2025-08-11T00:00Z"); it is normalized by `_normalize_times`.
     forecast_time : str
         Requested forecast valid time, same formatting expectations as `base_time`;
         normalized and matched to dataset coordinates.
     bbox : str, optional
         Spatial bounding box used by `_extract_spatial_subset`. Expected format
-        "minx,miny,maxx,maxy" in the dataset’s CRS (commonly lon/lat in WGS84).
+        "minx,miny,maxx,maxy" in the dataset's CRS (commonly lon/lat in WGS84).
         If omitted, the full 2D field is used.
 
     Returns
@@ -184,7 +200,7 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
 
     Side Effects
     ------------
-    - Logs progress and debug information at INFO level (steps A–E) via the
+    - Logs progress and debug information at INFO level (steps A—E) via the
       module-level `logger`.
     - Computes and logs subset statistics via `_log_subset_stats`.
     - Forces data materialization for the spatial subset (`.load()`), which may
@@ -237,9 +253,9 @@ def render_heatmap(index, data, extent):
     ----------
     index : str
         Dataset identifier that selects the color scaling strategy:
-        - "pof": percentile-based scaling (5th–95th) with floors/ceilings.
+        - "pof": percentile-based scaling (5th—95th) with floors/ceilings.
         - "fopi": fixed range [0, 1].
-        - other: robust scaling using 2nd–98th percentiles.
+        - other: robust scaling using 2nd—98th percentiles.
     data : np.ndarray
         2D array of raster values in EPSG:3857 (Web Mercator).
     extent : list[float]

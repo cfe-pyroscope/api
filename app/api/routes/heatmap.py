@@ -11,10 +11,10 @@ def get_heatmap_image(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-07-11T00:00:00')."),
     forecast_time: str = Query(..., description="Forecast time in ISO 8601 format (e.g., '2025-07-14T00:00:00')."),
-    bbox: str = Query(None, description="Bounding box in Web-Mercator meters as 'x_min,y_min,x_max,y_max'.")
+    bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')")
 ) -> StreamingResponse:
     """
-    Retrieve a generated heatmap image for a given dataset, time range, and optional spatial subset.
+    Retrieve a generated heatmap image for a given dataset, time range, and spatial subset.
 
     This endpoint produces a PNG heatmap image representing data for the specified
     `index` at the given `base_time` and `forecast_time`. Optionally, a bounding box can

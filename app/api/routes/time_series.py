@@ -20,7 +20,7 @@ router = APIRouter()
 @router.get("/{index}/time_series")
 async def time_series(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    bbox: str = Query(None, description="EPSG:3857 bbox (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
+    bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
     start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-03T00:00:00' or '2025-07-03T00:00:00Z')."),
     end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-07T00:00:00' or '2025-07-07T00:00:00Z')."),
 ):
