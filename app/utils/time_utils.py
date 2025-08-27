@@ -92,6 +92,7 @@ def _parse_iso_naive(s: str) -> pd.Timestamp:
     ts = pd.Timestamp(s)
     return (ts.tz_localize(None) if ts.tz is not None else ts).replace(microsecond=0)
 
+
 def _normalize_times(base_time: str, forecast_time: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
     Parse and normalize base and forecast time strings into naive pandas Timestamps.
@@ -126,9 +127,6 @@ def _match_base_time(ds: xr.Dataset, req_base: pd.Timestamp) -> pd.Timestamp:
     -------
     pd.Timestamp
         The matched base time (naive, second precision).
-        Note: the current implementation ends with `.to_pydatetime()`, which
-        actually returns a `datetime.datetime`. Replace that with
-        `pd.Timestamp(req_base)` to keep the annotated return type.
 
     Raises
     ------
@@ -170,7 +168,7 @@ def _match_base_time(ds: xr.Dataset, req_base: pd.Timestamp) -> pd.Timestamp:
 
 def _match_forecast_time(ds: xr.Dataset, matched_base: pd.Timestamp, req_fcst: pd.Timestamp) -> pd.Timestamp:
     """
-    Match a requested forecast time to the Dataset's 'forecast_time' coordinate for
+    Match a requested forecast time to the Dataset's 'forecast_time' data variable for
     a specific base time.
 
     This performs an exact label match at second precision against the list of
@@ -180,7 +178,7 @@ def _match_forecast_time(ds: xr.Dataset, matched_base: pd.Timestamp, req_fcst: p
     Parameters
     ----------
     ds : xr.Dataset
-        Dataset containing 'base_time' and 'forecast_time' coordinates.
+        Dataset containing 'base_time' coordinate and 'forecast_time' data variable.
     matched_base : pd.Timestamp
         The already-matched base (initialization) time, expected to be timezone-naive
         and trimmed to second precision.
@@ -197,18 +195,20 @@ def _match_forecast_time(ds: xr.Dataset, matched_base: pd.Timestamp, req_fcst: p
     Raises
     ------
     ValueError
-        If 'forecast_time' is missing in `ds`, or if `req_fcst` is not present for
-        the given `matched_base`.
+        If 'forecast_time' data variable is missing in `ds`, or if `req_fcst` is not
+        present for the given `matched_base`.
 
     Notes
     -----
     - Dataset forecast times are normalized to timezone-naive, second precision
       before comparison.
     - Only exact matches are supported
+    - 'forecast_time' is now a data variable, not a coordinate
     """
-    if "forecast_time" not in ds.coords:
-        raise ValueError("Dataset is missing 'forecast_time' coordinate.")
+    if "forecast_time" not in ds.data_vars:
+        raise ValueError("Dataset is missing 'forecast_time' data variable.")
 
+    # Select the forecast_time values for the specific base_time
     ds_bt = ds.sel(base_time=matched_base)
     fcst_vals = pd.to_datetime(ds_bt["forecast_time"].values)
     fcst_vals = [pd.Timestamp(x).tz_localize(None).replace(microsecond=0) for x in fcst_vals]

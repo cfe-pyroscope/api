@@ -5,7 +5,7 @@ from config.config import settings
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import available_dates, by_date, by_forecast, heatmap, latest_date, time_series
+from app.api.routes import available_dates, by_date, by_forecast, heatmap, heatmap_series, latest_date, time_series
 
 
 app = FastAPI(
@@ -35,6 +35,7 @@ app.include_router(available_dates.router, prefix=API)
 app.include_router(by_date.router, prefix=API)
 app.include_router(by_forecast.router, prefix=API)
 app.include_router(heatmap.router, prefix=API)
+app.include_router(heatmap_series.router, prefix=API)
 app.include_router(latest_date.router, prefix=API)
 app.include_router(time_series.router, prefix=API)
 

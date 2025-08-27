@@ -1,5 +1,6 @@
 import xarray as xr
 from pathlib import Path
+import numpy as np
 import pandas as pd
 import zarr
 from config.config import settings
@@ -81,22 +82,32 @@ def _extract_base_time(ds: xr.Dataset, index: str) -> pd.Timestamp:
 
 def _prepare_for_write(ds: xr.Dataset, base_time: pd.Timestamp, index: str) -> xr.Dataset:
     """Rename dims/coords and enforce target ordering before writing."""
-    # Rename 'time' dimension to 'forecast_time'
-    ds = ds.rename({"time": "forecast_time"})  # forecast_time contains forecast dates
 
-    # Adjust forecast_time coordinate values if needed
-    ds = ds.assign_coords(
-        forecast_time=ds.forecast_time.dt.floor('D') if index == "pof" else ds.forecast_time
+    # Store the original time values
+    original_time_values = (
+        ds.time.dt.floor('D').values if index == "pof" else ds.time.values
     )
+
+    # Rename 'time' dimension to 'forecast_index'
+    ds = ds.rename({"time": "forecast_index"})
+
+    # Store original time values as 'forecast_time' data variable to preserve them
+    ds['forecast_time'] = xr.DataArray(
+        original_time_values,
+        dims=['forecast_index'],
+        attrs={'long_name': 'Forecast time index', 'description': 'Original time coordinates'}
+    )
+
+    # Replace the forecast_index coordinate with a simple integer index to avoid conflicts
+    ds = ds.assign_coords(forecast_index=range(len(ds.forecast_index)))
 
     # Add base_time as a coordinate and expand to make it its own dimension
     ds = ds.assign_coords(base_time=base_time)
     ds = ds.expand_dims('base_time')
 
     # Ensure consistent dimension ordering
-    ds = ds.transpose('base_time', 'forecast_time', 'lat', 'lon')
+    ds = ds.transpose('base_time', 'forecast_index', 'lat', 'lon')
     return ds
-
 
 def _write_zarr(ds: xr.Dataset, output_zarr_path: Path, first: bool):
     """Write or append a dataset to the Zarr store (Zarr v2, consolidate later)."""
@@ -204,4 +215,6 @@ def merge_netcdf_to_zarr(index: str):
     # Consolidate metadata once after all files are written
     _consolidate_metadata(output_zarr_path)
 
+
+# merge_netcdf_to_zarr("pof")
 merge_netcdf_to_zarr("fopi")

@@ -4,14 +4,14 @@ import pandas as pd
 import numpy as np
 
 from app.utils.zarr_loader import _load_zarr
-from app.utils.time_utils import _parse_naive, _iso_utc   # ⬅️ use UTC-safe output
+from app.utils.time_utils import _parse_naive, _iso_utc   # ⬅️ UTC-safe output
 from config.logging_config import logger
 
 router = APIRouter()
 
 
 @router.get("/{index}/by_date")
-async def get_forecast_steps(
+async def get_forecast_time(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(
         ...,
@@ -27,66 +27,68 @@ async def get_forecast_steps(
 
     Summary
     -------
-    Returns the grid center location, the matched initialization (`base_time`), and
-    a list of forecast step times, all serialized as ISO 8601 UTC strings via
-    `_iso_utc` (e.g., "2025-07-11T00:00:00Z").
+    Returns the matched initialization (`base_time`) and the forecast steps
+    **for that run only**, obtained by selecting the corresponding row of the
+    2D `forecast_time` variable using `forecast_index`.
 
-    Parameters
-    ----------
-    index : str (path)
-        Dataset identifier, e.g. "fopi" or "pof".
-    base_time : str (query)
-        Requested initialization time in ISO 8601 form, with or without trailing
-        'Z' (e.g., "2025-07-11T00:00:00" or "2025-07-11T00:00:00Z").
-        Parsed with `_parse_naive` to a timezone-naive, second-precision timestamp.
+    Data Model (expected)
+    ---------------------
+    Dimensions: (forecast_index: N, lon: ..., lat: ..., base_time: M)
+    Coordinates: base_time (M), lat, lon, forecast_index (0..N-1)
+    Data variables:
+      - forecast_time (base_time, forecast_index) datetime64[ns]
+      - MODEL_FIRE   (base_time, forecast_index, lat, lon) float64
 
     Behavior
     --------
-    - Validates required coordinates: `base_time`, `forecast_time`, `lat`, `lon`.
-    - Matches `base_time` exactly at second precision; if not found, tries a
-      00Z↔12Z fallback on the same calendar date. If still not found, returns 404
-      with a hint (a few available times for that date), all shown as `_iso_utc`.
-    - For **POF**: collapses `forecast_time` to unique daily steps (preserving order),
-      typically ~10 days.
-    - For **FOPI** (and others): returns all available steps (3-hourly), sorted and unique.
-    - All returned times (`base_time` and each entry in `forecast_steps`) are
-      serialized with `_iso_utc`, ensuring explicit UTC with trailing 'Z'.
-
-    Returns
-    -------
-    dict
-        Example:
-        {
-          "index": dataset name (fopi or pof),
-          "base_time": "2025-07-11T00:00:00Z",
-          "forecast_steps": [
-            "2025-07-11T00:00:00Z",
-            "2025-07-11T03:00:00Z",
-            ...
-          ]
-        }
+    - Parses `base_time` to timezone-naive, second precision.
+    - Exact match on `base_time` at second precision; if not found, tries a
+      00Z↔12Z fallback on the same date. If still not found, returns 404 with
+      hints (first few available runs that date), all serialized via `_iso_utc`.
+    - Selects the **row** of `forecast_time` for the matched `base_time`, i.e.,
+      `forecast_time[matched_base, :]` along `forecast_index`.
+    - For **POF**: collapses to unique daily steps (preserving order), up to ~10 days.
+    - For **FOPI** (and others): returns the steps in `forecast_index` order,
+      de-duplicated but not re-sorted.
+    - All returned times are serialized with `_iso_utc` ("...Z").
 
     Errors
     ------
-    - 400 Bad Request:
-      - Missing required coordinates in the Zarr dataset.
-      - Other processing errors (returned as JSON with an "error" message).
-    - 404 Not Found:
-      - No `base_time` match (after attempting 00Z↔12Z fallback) for the requested date.
-
-    Notes
-    -----
-    - The dataset is loaded via `_load_zarr(index, base_time)`.
-    - Coordinates are normalized to timezone-naive, second precision for comparison;
-      `_iso_utc` is used only for output serialization.
+    - 400: Missing expected coordinates/variables or other processing errors.
+    - 404: No `base_time` match (after 00Z↔12Z fallback) for the requested date.
     """
     try:
         ds = _load_zarr(index)
 
-        # Parse requested base_time (accepts with/without Z; normalize to naive seconds)
+        # ---- Basic schema checks (fail fast) ---------------------------------
+        required_dims = {"base_time", "forecast_index"}
+        if not required_dims.issubset(set(ds.dims)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dataset missing required dims {required_dims}. Found: {set(ds.dims)}",
+            )
+        for coord in ("lat", "lon"):
+            if coord not in ds.coords:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dataset missing coordinate '{coord}'.",
+                )
+        if "forecast_time" not in ds:
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset missing data variable 'forecast_time' (base_time, forecast_index).",
+            )
+        ft_var = ds["forecast_time"]
+        if not {"base_time", "forecast_index"}.issubset(set(ft_var.dims)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'forecast_time' must have dims ('base_time','forecast_index'). Found: {ft_var.dims}",
+            )
+
+        # ---- Parse requested base_time (accepts with/without Z) --------------
         requested = _parse_naive(base_time)
 
-        # All available base_time values (naive, second precision)
+        # All available base_time values (normalize to naive, second precision)
         base_vals = pd.to_datetime(ds["base_time"].values)
         base_vals = pd.to_datetime([
             pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals
@@ -95,7 +97,7 @@ async def get_forecast_steps(
         # Exact match?
         matches = np.where(base_vals == requested)[0]
 
-        # Fallback 00Z <-> 12Z (common for multiple daily runs)
+        # Fallback 00Z <-> 12Z on same calendar date (common multi-daily runs)
         if matches.size == 0:
             alt_hour = 12 if requested.hour == 0 else 0
             alt = requested.replace(hour=alt_hour)
@@ -111,17 +113,19 @@ async def get_forecast_steps(
                 raise HTTPException(status_code=404, detail=detail)
             requested = alt
 
-        matched_base = base_vals[matches[0]]
+        idx = int(matches[0])
+        matched_base = base_vals[idx]
 
-        # Slice at the selected base_time
-        ds_bt = ds.sel(base_time=matched_base)
-
-        # Collect forecast_time values (naive, second precision)
-        ft_vals = pd.to_datetime(ds_bt["forecast_time"].values)
+        # ---- Select the row of forecast_time for this base_time --------------
+        # Using isel is robust against exact datetime equality quirks.
+        ft_row = ds["forecast_time"].isel(base_time=idx)  # dims: (forecast_index,)
+        # Convert to naive, second precision
+        ft_vals = pd.to_datetime(ft_row.values)
         ft_vals = [pd.Timestamp(x).tz_localize(None).replace(microsecond=0) for x in ft_vals]
 
+        # ---- Build output list per dataset conventions -----------------------
         if index.lower() == "pof":
-            # Collapse to unique days (preserving order), typically 10
+            # Collapse to unique days (preserving index order), typically ~10
             seen = set()
             daily = []
             for v in ft_vals:
@@ -129,19 +133,25 @@ async def get_forecast_steps(
                 if d not in seen:
                     seen.add(d)
                     daily.append(d)
-                if len(daily) >= 10:  # cap at 10 days if desired
+                if len(daily) >= 10:
                     break
             out_times = daily
         else:
-            # FOPI: keep all 3-hourly steps, sorted & unique
-            out_times = sorted(set(ft_vals))
+            # Keep steps in forecast_index order; deduplicate while preserving order
+            seen = set()
+            ordered_unique = []
+            for v in ft_vals:
+                if v not in seen:
+                    seen.add(v)
+                    ordered_unique.append(v)
+            out_times = ordered_unique
 
-        forecast_steps = [_iso_utc(t) for t in out_times]
+        forecast_time = [_iso_utc(t) for t in out_times]
 
         return {
             "index": index,
             "base_time": _iso_utc(matched_base),
-            "forecast_steps": forecast_steps,
+            "forecast_time": forecast_time,
         }
 
     except HTTPException:
