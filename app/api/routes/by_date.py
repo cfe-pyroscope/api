@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 from app.utils.zarr_handler import _load_zarr
-from app.utils.time_utils import _parse_naive, _iso_utc   # ⬅️ UTC-safe output
+from app.utils.time_utils import _iso_naive_utc, _iso_utc   # ⬅️ UTC-safe output
 from config.logging_config import logger
 
 router = APIRouter()
@@ -86,7 +86,7 @@ async def get_forecast_time(
             )
 
         # ---- Parse requested base_time (accepts with/without Z) --------------
-        requested = _parse_naive(base_time)
+        requested = _iso_naive_utc(base_time)
 
         # All available base_time values (normalize to naive, second precision)
         base_vals = pd.to_datetime(ds["base_time"].values)

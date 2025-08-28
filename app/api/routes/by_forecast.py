@@ -4,7 +4,7 @@ from datetime import timedelta
 import pandas as pd
 
 from app.utils.zarr_handler import _load_zarr
-from app.utils.time_utils import _parse_naive, _iso_utc
+from app.utils.time_utils import _iso_naive_utc, _iso_utc
 from config.logging_config import logger
 
 router = APIRouter()
@@ -54,7 +54,7 @@ def get_forecast_evolution(
         ds = _load_zarr(index)
 
         # Parse the requested verification time to timezone‑naive, second precision (UTC)
-        verification = _parse_naive(base_time)
+        verification = _iso_naive_utc(base_time)
         start_date = verification - timedelta(days=9)
         logger.info(
             f"🔍 Selected verification (target) time: {_iso_utc(verification)} — building steps in [{start_date}, {verification}]"
