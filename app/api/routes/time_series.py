@@ -1,6 +1,7 @@
+
 from fastapi import APIRouter, Query, Path, HTTPException
 from fastapi.responses import JSONResponse
-from typing import Optional, List
+from typing import Optional
 from urllib.parse import unquote
 import pandas as pd
 
@@ -10,6 +11,7 @@ from app.utils.time_utils import (
     _iso_utc,
 )
 from app.utils.stats import _agg_mean_median
+from app.utils.bounds_utils import _extract_spatial_subset
 
 from config.config import settings
 from config.logging_config import logger
@@ -64,12 +66,6 @@ async def time_series(
           - `mean` (list[float | None]): Mean values per run, `None` if unavailable.
           - `median` (list[float | None]): Median values per run, `None` if unavailable.
 
-    Raises
-    ------
-    HTTPException
-        - 404: No runs match the given filters.
-        - 400: Invalid parameters or internal processing error.
-
     Notes
     -----
     - This function computes statistics eagerly (fully loading the data into memory).
@@ -77,14 +73,25 @@ async def time_series(
     - The output is designed for charting, with the x-axis representing `base_time`.
     """
     try:
+        # Load Zarr and resolve the variable name based on index
         ds = _load_zarr(index)
-        var_name = settings.VAR_NAMES[index]
+        try:
+            var_name = settings.VAR_NAMES[index]
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Unknown index '{index}': {e}")
+        if var_name not in ds.data_vars:
+            raise HTTPException(status_code=400, detail=f"Variable '{var_name}' not found in dataset for '{index}'.")
+
         da = ds[var_name]
 
-        # Normalize and optionally filter the list of runs
+        # Normalize run list (base_time is a coordinate)
+        if "base_time" not in ds.coords:
+            raise HTTPException(status_code=400, detail="Dataset is missing 'base_time' coordinate.")
         base_vals = pd.to_datetime(ds["base_time"].values)
+        # Make naive + second precision
         base_vals = [pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals]
 
+        # Optional base_time filtering
         if start_base:
             sb = _iso_drop_tz(start_base)
             base_vals = [bt for bt in base_vals if bt >= sb]
@@ -97,6 +104,13 @@ async def time_series(
         # Select only those runs (works whether base_time is a dim or coord)
         da_sel = da.sel(base_time=base_vals)
 
+        # Optional spatial subsetting (EPSG:3857 bbox -> EPSG:4326 inside utility)
+        if bbox:
+            try:
+                da_sel = _extract_spatial_subset(da_sel, bbox=bbox)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid bbox or extraction error: {e}")
+
         # ---- Compute run-to-run stats without Dask; use _agg_mean_median ----
         mean_vals: list[float | None] = []
         median_vals: list[float | None] = []
@@ -105,11 +119,13 @@ async def time_series(
         bt_coord = pd.to_datetime(da_sel["base_time"].values)
         for bt in bt_coord:
             da_bt = da_sel.sel(base_time=bt)
+            # _agg_mean_median reduces over lat/lon; if forecast_index remains,
+            # it will also be included in the aggregation (intended behavior).
             m, md = _agg_mean_median(da_bt)
             mean_vals.append(m)
             median_vals.append(md)
 
-        # Base-time timestamps → ISO strings
+        # Base-time timestamps → ISO strings (UTC with trailing 'Z')
         timestamps_iso = [_iso_utc(pd.Timestamp(t)) for t in bt_coord]
 
         response = {
