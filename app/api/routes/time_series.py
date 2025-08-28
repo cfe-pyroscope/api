@@ -6,7 +6,7 @@ import pandas as pd
 
 from app.utils.zarr_handler import _load_zarr
 from app.utils.time_utils import (
-    _parse_iso_naive,
+    _iso_drop_tz,
     _iso_utc,
 )
 from app.utils.stats import _agg_mean_median
@@ -86,10 +86,10 @@ async def time_series(
         base_vals = [pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals]
 
         if start_base:
-            sb = _parse_iso_naive(start_base)
+            sb = _iso_drop_tz(start_base)
             base_vals = [bt for bt in base_vals if bt >= sb]
         if end_base:
-            eb = _parse_iso_naive(end_base)
+            eb = _iso_drop_tz(end_base)
             base_vals = [bt for bt in base_vals if bt <= eb]
         if not base_vals:
             raise HTTPException(status_code=404, detail="No base_time runs found for the given filters.")
