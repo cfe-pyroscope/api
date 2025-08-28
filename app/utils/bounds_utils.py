@@ -6,30 +6,47 @@ import xarray as xr
 from config.logging_config import logger
 
 
-def _decode_bbox(b: str) -> str:
+def _decode_coords(b: str) -> str:
     """
-    Decode a URL-encoded bounding box string.
+    Decode a URL-encoded coords string (2) or bounding box string (4).
 
     Performs one or two rounds of URL decoding on the input string. A second decoding
     pass is applied if the first decoded result still contains a "%2C" sequence
     (encoded comma), which can occur if the string was encoded twice.
 
     Args:
-        b (str): Bounding box string, potentially URL-encoded one or more times.
+        b (str): Coords/bbox string, potentially URL-encoded one or more times.
             Example: "-8237642%2C4970351%2C-8235642%2C4972351"
 
     Returns:
-        str: Decoded bounding box string in plain text form.
+        str: Decoded coords/bbox string in plain text form.
             Example: "-8237642,4970351,-8235642,4972351"
 
     Example:
-       >>> _decode_bbox("-8237642%2C4970351%2C-8235642%2C4972351")
+       >>> _decode_coords("-8237642%2C4970351%2C-8235642%2C4972351")
         '-8237642,4970351,-8235642,4972351'
     """
     if not b:
         return b
     s1 = unquote(b)
     return unquote(s1) if "%2C" in s1 else s1
+
+
+def _parse_coords(coords: str) -> tuple[float, float]:
+    """
+    Parse 'x,y' in EPSG:3857 into floats.
+    """
+    if not coords:
+        raise ValueError("Missing 'coords' query parameter.")
+    decoded = _decode_coords(coords).strip()
+    parts = decoded.split(",")
+    if len(parts) != 2:
+        raise ValueError("Invalid 'coords' format. Expected 'x,y' in EPSG:3857.")
+    try:
+        x, y = float(parts[0]), float(parts[1])
+    except ValueError:
+        raise ValueError("Invalid numeric values in 'coords'.")
+    return x, y
 
 
 def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
@@ -88,7 +105,7 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
 
     # If bbox present, transform EPSG:3857 -> EPSG:4326
     if bbox:
-        bbox = _decode_bbox(bbox).strip()
+        bbox = _decode_coords(bbox).strip()
         x_min, y_min, x_max, y_max = map(float, bbox.split(","))
         transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
         lon_min, lat_min = transformer.transform(x_min, y_min)

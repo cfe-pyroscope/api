@@ -1,7 +1,3 @@
-"""
-This is the orignal version in which the color scale change dynamically according to the min and max value of the selected area
-"""
-
 import io
 import logging
 import pandas as pd
@@ -176,85 +172,132 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
         raise
 
 
-def render_heatmap(index: str, data: np.ndarray, extent: list[float]) -> tuple[io.BytesIO, list[float], float, float]:
+def render_heatmap(index, data, extent):
     """
     Render a transparent-background heatmap PNG from a 2D raster array.
 
-    Scaling rules:
-      - POF  : fixed [0.0, 0.05], values >= 0.05 are max category.
-      - FOPI : fixed [0.0, 1.0], linear from no risk to max risk.
-      - other: robust [p2, p98] from valid (non-masked, finite) data.
+    The image uses a predefined sequential colormap with transparency for masked
+    pixels (NaN/Inf/zero), so ocean or nodata areas are invisible.
+
+    Parameters
+    ----------
+    index : str
+        Dataset identifier that selects the color scaling strategy:
+        - "pof": percentile-based scaling (5th—95th) with floors/ceilings.
+        - "fopi": fixed range [0, 1].
+        - other: robust scaling using 2nd—98th percentiles.
+    data : np.ndarray
+        2D array of raster values in EPSG:3857 (Web Mercator).
+    extent : list[float]
+        Spatial bounds in EPSG:3857 as [xmin, xmax, ymin, ymax]
+        (aka [left, right, bottom, top]). Passed to `imshow`.
+
+    Returns
+    -------
+    tuple[io.BytesIO, list[float], float, float]
+        - In-memory PNG image stream (transparent background).
+        - The extent used for rendering, as [xmin, xmax, ymin, ymax].
+        - vmin: minimum value mapped to the colormap.
+        - vmax: maximum value mapped to the colormap.
 
     Notes
     -----
-    - 'extent' must be [xmin, xmax, ymin, ymax] for imshow.
-    - Zeros, NaN, and Inf are masked (transparent).
+    - Pixels where `data == 0`, `NaN`, or `Inf` are masked and rendered fully
+      transparent. The colormap's "bad" color is also transparent.
+    - Figure size is derived from `extent` to preserve aspect ratio; axes and
+      background are hidden and fully transparent.
+    - Scaling:
+      - **POF**: vmin = max(p5, 0.001), vmax = max(p95, 0.05).
+      - **FOPI**: vmin = 0, vmax = 1.
+      - **Default**: vmin = 2nd percentile, vmax = 98th percentile.
+      If no finite values are present, falls back to vmin=0, vmax=1.
+    - Uses `origin="upper"` in `imshow`.
+
+    Side Effects
+    ------------
+    Logs INFO/WARNING messages (extent used, chosen display range, and, for "pof",
+    the relative position of the 0.05 threshold) via the module-level `logger`.
+
+    Raises
+    ------
+    Any exceptions from NumPy/Matplotlib (e.g., invalid shapes or extents) are not
+    caught and will propagate to the caller.
     """
-    # Figure sizing based on extent
     x_range = extent[1] - extent[0]
     y_range = extent[3] - extent[2]
-    aspect_ratio = (x_range / y_range) if y_range else 1.0
+    aspect_ratio = x_range / y_range if y_range else 1
     height = 5
-    width = max(height * aspect_ratio, 1e-3)
-
+    width = height * aspect_ratio
     fig, ax = plt.subplots(figsize=(width, height), dpi=150)
     ax.axis("off")
     ax.set_aspect("auto")
+    # Make figure background transparent
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
-    # Mask invalid + zeros (e.g., ocean/nodata)
-    masked_data = np.ma.masked_invalid(data)
-    masked_data = np.ma.masked_where((masked_data == 0), masked_data)
+    # Mask both invalid values AND zeros (ocean areas)
+    masked_data = np.ma.masked_where((data == 0) | np.isnan(data) | np.isinf(data), data)
 
-    # Build colormap (masked values are fully transparent)
+    # Color map - first color is transparent for masked values
     colors = [(0, 0, 0, 0), "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
               "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]
     cmap = ListedColormap(colors)
-    cmap.set_bad(color=(0, 0, 0, 0))  # transparent for masked
-
-    # Determine vmin/vmax according to the index
-    idx = (index or "").lower()
-    if idx == "pof":
-        vmin, vmax = 0.0, 0.05
-        logger.info("📏 POF fixed scaling: [vmin=0.00, vmax=0.05] — values ≥ 0.05 will be max color.")
-    elif idx == "fopi":
-        vmin, vmax = 0.0, 1.0
-        logger.info("📏 FOPI fixed scaling: [vmin=0.00, vmax=1.00].")
-    else:
-        # Robust scaling for everything else, using valid, non-masked values
-        valid_data = masked_data.compressed()  # 1D ndarray of finite, unmasked values
-        if valid_data.size:
-            p2 = float(np.percentile(valid_data, 2))
-            p98 = float(np.percentile(valid_data, 98))
-            if not np.isfinite(p2) or not np.isfinite(p98) or p2 == p98:
-                vmin = float(np.min(valid_data))
-                vmax = float(np.max(valid_data))
-            else:
-                vmin, vmax = p2, p98
-            if vmin == vmax:
-                vmax = vmin + 1e-6
-            logger.info(f"📊 Default scaling - Display range: [{vmin:.6g}, {vmax:.6g}] (robust 2–98th).")
-        else:
-            vmin, vmax = 0.0, 1.0
-            logger.warning("⚠️ No valid data found for default scaling; using fallback [0, 1].")
+    cmap.set_bad(color=(0, 0, 0, 0))  # Transparent for masked values
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
+
+    # Calculate vmin/vmax excluding invalid values
+    valid_data = data[np.isfinite(data)]
+    if len(valid_data) > 0:
+        """ ORIGINAL CALCULATION
+        data_min = np.min(valid_data)
+        data_max = np.max(valid_data)"""
+        data_min = 0
+        data_max = 1
+
+        # Different scaling strategies based on index type
+        if index.lower() == 'pof':
+            # For POF: Use percentile-based scaling to enhance contrast
+            # This ensures we use the full color range even for small values
+            p5 = np.percentile(valid_data, 5)  # 5th percentile as minimum
+            p95 = np.percentile(valid_data, 95)  # 95th percentile as maximum
+
+            # Ensure minimum threshold for severe conditions (0.05)
+            vmin = max(p5, 0.001)  # Don't go below 0.001 to avoid over-stretching
+            vmax = max(p95, 0.05)  # Ensure we can show severe conditions (≥0.05)
+
+            logger.info(f"📊 POF scaling - Data range: [{data_min:.4f}, {data_max:.4f}], "
+                        f"Display range: [{vmin:.4f}, {vmax:.4f}]")
+
+        elif index.lower() == 'fopi':
+            # For FOPI: Use the full data range (original behavior)
+            vmin = data_min
+            vmax = data_max
+
+            logger.info(f"📊 FOPI scaling - Data range: [{data_min:.4f}, {data_max:.4f}]")
+
+        else:
+            # Default: Use full range but with some outlier protection
+            p2 = np.percentile(valid_data, 2)
+            p98 = np.percentile(valid_data, 98)
+            vmin = p2
+            vmax = p98
+
+            logger.info(f"📊 Default scaling - Data range: [{data_min:.4f}, {data_max:.4f}], "
+                        f"Display range: [{vmin:.4f}, {vmax:.4f}]")
+    else:
+        vmin, vmax = 0, 1  # Fallback if no valid data
+        logger.warning("⚠️ No valid data found, using fallback range [0, 1]")
+
     im = ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
 
-    if idx == "pof":
-        pos = (0.05 - vmin) / (vmax - vmin) if vmax > vmin else 1.0
-        logger.info(f"🔥 POF severe threshold 0.05 maps to the top of the scale (position {pos:.2f}).")
+    if index.lower() == 'pof':
+        logger.info(f"🔥 POF severe conditions threshold (0.05) maps to color position: "
+                    f"{(0.05 - vmin) / (vmax - vmin):.2f}")
 
     buf = io.BytesIO()
-    plt.savefig(
-        buf,
-        format="png",
-        bbox_inches="tight",
-        pad_inches=0,
-        transparent=True,
-        facecolor="none",
-    )
+    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0,
+                transparent=True, facecolor='none')  # Ensure transparency is preserved
     plt.close(fig)
     buf.seek(0)
     return buf, extent, float(vmin), float(vmax)

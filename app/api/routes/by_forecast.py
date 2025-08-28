@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from datetime import timedelta
 import pandas as pd
 
-from app.utils.zarr_loader import _load_zarr
+from app.utils.zarr_handler import _load_zarr
 from app.utils.time_utils import _parse_naive, _iso_utc
 from config.logging_config import logger
 
@@ -14,7 +14,7 @@ router = APIRouter()
 def get_forecast_evolution(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(
-        ..., description="Verification time ISO8601 (e.g., '2025-07-11T00:00:00' or '2025-07-11T00:00:00Z')."
+        ..., description="Verification time ISO8601 (e.g. '2025-07-11T00:00:00Z')."
     ),
 ) -> dict:
     """Retrieve the temporal sequence of forecast targets for a given verification time.
