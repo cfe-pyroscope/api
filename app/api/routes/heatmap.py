@@ -9,8 +9,8 @@ router = APIRouter()
 @router.get("/{index}/heatmap/image")
 def get_heatmap_image(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    base_time: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-07-11T00:00:00')."),
-    forecast_time: str = Query(..., description="Forecast time in ISO 8601 format (e.g., '2025-07-14T00:00:00')."),
+    base_time: str = Query(..., description="Base time in ISO 8601 format (e.g., '2025-07-11T00:00:00Z')."),
+    forecast_time: str = Query(..., description="Forecast time in ISO 8601 format (e.g., '2025-07-14T00:00:00Z')."),
     bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')")
 ) -> StreamingResponse:
     """
@@ -27,8 +27,8 @@ def get_heatmap_image(
             (e.g., "2025-07-11T00:00:00").
         forecast_time (str): Forecast time in ISO 8601 format
             (e.g., "2025-07-14T00:00:00").
-        bbox (str, optional): Bounding box in Web Mercator meters as
-            "x_min,y_min,x_max,y_max". If not provided, the full dataset extent is used.
+        bbox (str): Bounding box in Web Mercator meters as
+            "x_min,y_min,x_max,y_max".
 
     Returns:
         StreamingResponse: PNG image stream of the heatmap.
@@ -57,5 +57,5 @@ def get_heatmap_image(
         return response
 
     except Exception as e:
-        logger.exception("🔥 Heatmap generation failed")
+        logger.exception("🛑 Heatmap generation failed")
         return JSONResponse(status_code=400, content={"error": str(e)})

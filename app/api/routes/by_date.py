@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
 
-from app.utils.zarr_loader import _load_zarr
+from app.utils.zarr_handler import _load_zarr
 from app.utils.time_utils import _parse_naive, _iso_utc   # ⬅️ UTC-safe output
 from config.logging_config import logger
 
@@ -15,7 +15,7 @@ async def get_forecast_time(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     base_time: str = Query(
         ...,
-        description="Base time ISO8601 (e.g., '2025-07-11T00:00:00' or '2025-07-11T00:00:00Z').",
+        description="Base time ISO8601 (e.g., '2025-07-11T00:00:00Z').",
     ),
 ) -> dict:
     """

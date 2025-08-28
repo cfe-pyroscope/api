@@ -4,7 +4,7 @@ from typing import Optional, List
 from urllib.parse import unquote
 import pandas as pd
 
-from app.utils.zarr_loader import _load_zarr
+from app.utils.zarr_handler import _load_zarr
 from app.utils.time_utils import (
     _parse_iso_naive,
     _iso_utc,
@@ -21,11 +21,15 @@ router = APIRouter()
 async def time_series(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
-    start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-03T00:00:00' or '2025-07-03T00:00:00Z')."),
-    end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-07T00:00:00' or '2025-07-07T00:00:00Z')."),
+    start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-03T00:00:00Z')."),
+    end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-07T00:00:00Z')."),
 ):
     """
     Retrieve run-to-run summary statistics for a given fire danger index.
+
+    Path
+    ----
+    GET /{index}/time_series
 
     This endpoint loads a time series from the Zarr dataset for the specified
     `index` (e.g., "pof" or "fopi"), optionally filters runs by a spatial
