@@ -32,4 +32,32 @@ app/
 │   ├── zarr_loader.py          ← Data access and caching (Zarr/NetCDF)     
 │      
 ├── main.py                     ← FastAPI app setup and router inclusion     
-   
+
+
+## Docker deployment
+You need to have docker installed in your machine. Docker Desktop for windows should be enough for a Windows PC. 
+
+From inside the api directory use the command bellow to build the image:
+
+```aiignore
+docker buildx build --platform linux/amd64 -t cfe-backend --load .
+```
+
+The above command works when you build the image on an ARM machine (Mac with M1,M2,M3,M4 CPU or a Windows laptop with Snapdragon CPU). This might work on machines with Intel/AMD. If it doesn't try the command below.
+
+```aiignore
+docker build -t cfe-backend --load .
+```
+
+To run the app in a docker container you can use the command bellow:
+
+```aiignore
+docker run --name cfe-backend \
+  -p 8090:8000 \
+  -v "<data path on host>:/data:ro" \
+  cfe-backend
+```
+
+Be careful! The string after `-t` (`cfe-backend` in the example) in build command should be the same with the one after `--name` in the run command as this is the name of the image.
+
+If everything worked well then you should be able to access the fastAPI app on http://0.0.0.0:8090
