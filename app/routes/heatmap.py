@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, Path
 from fastapi.responses import JSONResponse, StreamingResponse
-from app.utils.heatmap_generator import generate_heatmap_image
+from utils.heatmap_generator import generate_heatmap_image
 from config.logging_config import logger
 
 router = APIRouter()

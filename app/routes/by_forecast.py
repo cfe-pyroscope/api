@@ -3,8 +3,8 @@ from fastapi.responses import JSONResponse
 from datetime import timedelta
 import pandas as pd
 
-from app.utils.zarr_handler import _load_zarr
-from app.utils.time_utils import _iso_naive_utc, _iso_utc
+from utils.zarr_handler import _load_zarr
+from utils.time_utils import _iso_naive_utc, _iso_utc
 from config.logging_config import logger
 
 router = APIRouter()

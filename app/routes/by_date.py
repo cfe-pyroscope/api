@@ -3,8 +3,8 @@ from fastapi.responses import JSONResponse
 import pandas as pd
 import numpy as np
 
-from app.utils.zarr_handler import _load_zarr
-from app.utils.time_utils import _iso_naive_utc, _iso_utc   # ⬅️ UTC-safe output
+from utils.zarr_handler import _load_zarr
+from utils.time_utils import _iso_naive_utc, _iso_utc   # ⬅️ UTC-safe output
 from config.logging_config import logger
 
 router = APIRouter()

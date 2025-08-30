@@ -5,13 +5,13 @@ from typing import Optional
 from urllib.parse import unquote
 import pandas as pd
 
-from app.utils.zarr_handler import _load_zarr
-from app.utils.time_utils import (
+from utils.zarr_handler import _load_zarr
+from utils.time_utils import (
     _iso_drop_tz,
     _iso_utc,
 )
-from app.utils.stats import _agg_mean_median
-from app.utils.bounds_utils import _extract_spatial_subset
+from utils.stats import _agg_mean_median
+from utils.bounds_utils import _extract_spatial_subset
 
 from config.config import settings
 from config.logging_config import logger

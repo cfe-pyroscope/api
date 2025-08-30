@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import xarray as xr
 import os
 import pandas as pd
-from app.utils.time_utils import _iso_utc
+from utils.time_utils import _iso_utc
 from config.config import settings
 from config.logging_config import logger
 

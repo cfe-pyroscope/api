@@ -10,9 +10,9 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import matplotlib
-from app.utils.zarr_handler import _load_zarr, _slice_field, _select_first_param
-from app.utils.bounds_utils import _extract_spatial_subset, _reproject_and_prepare
-from app.utils.time_utils import _normalize_times, _match_base_time, _match_forecast_time
+from utils.zarr_handler import _load_zarr, _slice_field, _select_first_param
+from utils.bounds_utils import _extract_spatial_subset, _reproject_and_prepare
+from utils.time_utils import _normalize_times, _match_base_time, _match_forecast_time
 
 matplotlib.use("Agg")
 logger = logging.getLogger("uvicorn")

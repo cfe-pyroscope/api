@@ -20,9 +20,9 @@ BASE_DIR = Path(__file__).parent.resolve()
 
 
 class Settings(BaseSettings):
-    STORAGE_ROOT: Path = (BASE_DIR / "../data").resolve()
-    NC_PATH: Path = (BASE_DIR / "../data/nc").resolve()
-    ZARR_PATH: Path = (BASE_DIR / "../data/zarr").resolve()
+    STORAGE_ROOT: Path = (BASE_DIR / "../../data").resolve()
+    NC_PATH: Path = (BASE_DIR / "../../data/nc").resolve()
+    ZARR_PATH: Path = (BASE_DIR / "../../data/zarr").resolve()
     API_PREFIX: str = "/api"
 
     FILENAME_PATTERNS: Dict[str, Pattern] = Field(default_factory=lambda: {

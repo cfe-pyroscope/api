@@ -6,9 +6,9 @@ import pandas as pd
 
 from config.logging_config import logger
 
-from app.utils.zarr_handler import _load_zarr, _select_first_param
-from app.utils.bounds_utils import _parse_coords
-from app.utils.time_utils import _normalize_times, _iso_utc
+from utils.zarr_handler import _load_zarr, _select_first_param
+from utils.bounds_utils import _parse_coords
+from utils.time_utils import _normalize_times, _iso_utc
 
 router = APIRouter()
 
