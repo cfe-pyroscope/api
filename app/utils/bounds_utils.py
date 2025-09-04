@@ -3,7 +3,6 @@ import numpy as np
 from pyproj import Transformer
 from urllib.parse import unquote
 import xarray as xr
-from config.logging_config import logger
 
 
 def _decode_coords(b: str) -> str:

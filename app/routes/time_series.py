@@ -8,7 +8,7 @@ import pandas as pd
 from utils.zarr_handler import _load_zarr
 from utils.time_utils import (
     _iso_drop_tz,
-    _iso_utc,
+    _iso_utc_str,
 )
 from utils.stats import _agg_mean_median
 from utils.bounds_utils import _extract_spatial_subset
@@ -23,54 +23,11 @@ router = APIRouter()
 async def time_series(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
     bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
-    start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-03T00:00:00Z')."),
-    end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-07-07T00:00:00Z')."),
+    start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-01T00:00:00Z')."),
+    end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-04T00:00:00Z')."),
 ):
     """
-    Retrieve run-to-run summary statistics for a given fire danger index.
 
-    Path
-    ----
-    GET /{index}/time_series
-
-    This endpoint loads a time series from the Zarr dataset for the specified
-    `index` (e.g., "pof" or "fopi"), optionally filters runs by a spatial
-    bounding box in EPSG:3857 and/or a base time range, and computes the
-    mean and median for each selected run.
-
-    Parameters
-    ----------
-    index : str
-        Dataset identifier, such as "fopi" or "pof".
-    bbox : str, optional
-        Bounding box in EPSG:3857 coordinates, formatted as
-        `"x_min,y_min,x_max,y_max"`. May be URL-encoded
-        (commas as `%2C`). If provided, only data within this
-        spatial extent is included in the statistics.
-    start_base : str, optional
-        ISO8601 datetime string (e.g., `"2025-07-03T00:00:00Z"`)
-        for the earliest `base_time` to include (inclusive).
-    end_base : str, optional
-        ISO8601 datetime string for the latest `base_time` to
-        include (inclusive).
-
-    Returns
-    -------
-    dict
-        JSON object containing:
-          - `index` (str): Lowercase dataset identifier.
-          - `mode` (str): Always `"by_base_time"`.
-          - `stat` (list[str]): List of statistics included, `["mean", "median"]`.
-          - `bbox_epsg3857` (str | None): Human-readable bounding box or `null`.
-          - `timestamps` (list[str]): Base time run timestamps in UTC ISO format.
-          - `mean` (list[float | None]): Mean values per run, `None` if unavailable.
-          - `median` (list[float | None]): Median values per run, `None` if unavailable.
-
-    Notes
-    -----
-    - This function computes statistics eagerly (fully loading the data into memory).
-    - NaN-only runs produce `None` for both mean and median.
-    - The output is designed for charting, with the x-axis representing `base_time`.
     """
     try:
         # Load Zarr and resolve the variable name based on index
@@ -126,7 +83,7 @@ async def time_series(
             median_vals.append(md)
 
         # Base-time timestamps → ISO strings (UTC with trailing 'Z')
-        timestamps_iso = [_iso_utc(pd.Timestamp(t)) for t in bt_coord]
+        timestamps_iso = [_iso_utc_str(pd.Timestamp(t)) for t in bt_coord]
 
         response = {
             "index": index.lower(),

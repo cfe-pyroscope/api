@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import zarr
-from config.config import settings
+from app.config.config import settings
 
 
 def _list_nc_files(data_path: Path):
