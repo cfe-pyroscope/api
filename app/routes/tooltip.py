@@ -8,7 +8,7 @@ from config.logging_config import logger
 
 from utils.zarr_handler import _load_zarr, _select_first_param
 from utils.bounds_utils import _parse_coords
-from utils.time_utils import _normalize_times, _iso_utc
+from utils.time_utils import _normalize_times, _naive_utc_ndarray
 
 router = APIRouter()
 
@@ -16,17 +16,16 @@ router = APIRouter()
 @router.get("/{index}/tooltip")
 def get_tooltip_data(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    base_time: str = Query(..., description="Base time ISO 8601 (e.g., '2025-07-11T00:00:00Z')."),
-    forecast_time: str = Query(..., description="Forecast time ISO 8601 (e.g., '2025-07-14T00:00:00Z')."),
+    base_time: str = Query(..., description="Base time ISO 8601 (e.g., '2025-09-02T00:00:00Z')."),
+    forecast_time: str = Query(..., description="Forecast time ISO 8601 (e.g., '2025-09-05T00:00:00Z')."),
     coords: str = Query(..., description="EPSG:3857 as 'x,y' (e.g., '2617356.7225410054, -990776.760632454')")
 ) -> JSONResponse:
     """
-    Retrieve tooltip data (single-point sample) for a given dataset/time/coords.
-
-    Strict behavior: the provided times must exactly exist in the dataset.
-
-    Example:
-        GET /api/fopi/tooltip?base_time=2025-07-11T00:00:00Z&forecast_time=2025-07-14T00:00:00Z&coords=2617356.7225410054, -990776.760632454
+    Get tooltip data for a dataset at a specific location and time.
+    Converts input coordinates from EPSG:3857 to lon/lat, loads the Zarr
+    dataset, and retrieves the nearest grid value for the first parameter
+    (excluding `forecast_time`) at the requested `base_time` and
+    `forecast_time`.
     """
     try:
         # coords -> lon/lat
@@ -38,50 +37,59 @@ def get_tooltip_data(
         ds = _load_zarr(index)
         param = _select_first_param(ds)  # excludes 'forecast_time' by design
 
-        # normalize times (naive UTC, second precision)
+        # normalize requested times to tz-naive UTC
         req_base, req_fcst = _normalize_times(base_time, forecast_time)
 
-        # slice EXACT base_time then find EXACT forecast_index by matching forecast_time data var
-        ds_bt = ds.sel(base_time=req_base)  # base_time IS a coordinate
+        logger.info(f"🍋🍋🍋 req_base: {req_base}")
+        logger.info(f"🍋🍋🍋 req_fcst: {req_fcst}")
 
-        # normalize dataset forecast_time values to naive UTC seconds
-        fcst_vals = pd.to_datetime(ds_bt["forecast_time"].values)
-        fcst_vals = [pd.Timestamp(v).tz_localize(None).replace(microsecond=0) for v in fcst_vals]
+        ds = ds.assign_coords(
+            base_time=_naive_utc_ndarray(ds["base_time"].values)
+        )
 
-        # take the index
-        fcst_idx = next(i for i, v in enumerate(fcst_vals) if v == req_fcst)
+        # if forecast_time is stored as a data variable (common), normalize after slicing base_time
+        ds_bt = ds.sel(base_time=req_base)
 
-        # extract the 2D field
+        fcst_vals = _naive_utc_ndarray(ds_bt["forecast_time"].values)
+
+        # 3) exact match on forecast_time (no nearest)
+        matches = np.where(fcst_vals == req_fcst)[0]
+        if matches.size == 0:
+            raise KeyError(f"forecast_time {req_fcst} not found. "
+                           f"Available: {fcst_vals.min()} .. {fcst_vals.max()} count={len(fcst_vals)}")
+        fcst_idx = int(matches[0])
+
         da = ds_bt[param].isel(forecast_index=fcst_idx)
-
-        # sample nearest grid point
         picked = da.sel(lon=lon, lat=lat, method="nearest")
+
         value = picked.values
         if isinstance(value, np.ndarray):
             value = value.item()
         val = None if (value is None or (isinstance(value, float) and np.isnan(value))) else float(value)
 
-        logger.info(f"Tooltip value: {val}")
-
-        return JSONResponse(status_code=200, content={
-            "index": index,
-            "param": param,
-            "value": val,
-            "point": {
-                "input_epsg3857": {"x": float(x3857), "y": float(y3857)},
-                "lon": float(lon),
-                "lat": float(lat),
-                "nearest_grid": {
-                    "lon": float(picked["lon"].values),
-                    "lat": float(picked["lat"].values),
+        return JSONResponse(
+            status_code=200,
+            content={
+                "index": index,
+                "param": param,
+                "value": val,
+                "point": {
+                    "input_epsg3857": {"x": float(x3857), "y": float(y3857)},
+                    "lon": float(lon),
+                    "lat": float(lat),
+                    "nearest_grid": {
+                        "lon": float(picked["lon"].values),
+                        "lat": float(picked["lat"].values),
+                    },
+                },
+                "time": {
+                    # serialize as ISO Z when returning
+                    "base_time": pd.Timestamp(req_base, tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "forecast_time": pd.Timestamp(req_fcst, tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
             },
-            "time": {
-                "base_time": _iso_utc(req_base),
-                "forecast_time": _iso_utc(req_fcst),
-            },
-        })
+        )
     except Exception as e:
-        logger.exception("🛑 Tooltip data retrieval failed")
+        logger.exception("❌ Tooltip data retrieval failed")
         return JSONResponse(status_code=400, content={"error": str(e)})
 

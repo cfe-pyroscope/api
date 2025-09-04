@@ -1,38 +1,24 @@
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
-from datetime import datetime, timezone
-from config.logging_config import logger
+import logging
 
 
-def _iso_utc(dt_like) -> str:
+def _iso_utc_str(dt_like) -> str:
     """
-    Convert datetime-like values (np.datetime64, pandas.Timestamp, datetime)
-    to ISO-8601 in UTC with a trailing 'Z'.
+    Convert a datetime-like object to an ISO 8601 UTC string at midnight (00:00:00Z).
     """
-    ts = pd.Timestamp(dt_like)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    else:
-        ts = ts.tz_convert("UTC")
-    # Use 'Z' instead of +00:00 for compactness
-    return ts.isoformat().replace("+00:00", "Z")
+    ts = pd.to_datetime(dt_like, utc=True).normalize()
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _iso_naive_utc(dt_str: str) -> pd.Timestamp:
+def _iso_utc_ndarray(values) -> pd.DatetimeIndex:
     """
-    Parse an ISO 8601 string into a timezone-naive Timestamp in UTC.
-
-    If the string has a timezone, it is converted to UTC before dropping
-    the tzinfo. Naive inputs are assumed to already represent UTC.
-    The result is truncated to whole seconds.
+    Convert datetime-like values (NumPy ndarray or scalar) to a normalized UTC DatetimeIndex.
+    Each value is truncated to midnight (00:00:00) in UTC.
     """
-    ts = pd.to_datetime(dt_str, errors="raise")
-    if ts.tz is not None:
-        ts = ts.tz_convert("UTC").tz_localize(None)
-    else:
-        ts = ts.tz_localize(None)
-    return pd.Timestamp(ts.replace(microsecond=0))
+    return pd.to_datetime(values, utc=True).normalize()
 
 
 def _iso_drop_tz(s: str) -> pd.Timestamp:
@@ -46,132 +32,126 @@ def _iso_drop_tz(s: str) -> pd.Timestamp:
     return (ts.tz_localize(None) if ts.tz is not None else ts).replace(microsecond=0)
 
 
+def _iso_naive_utc(dt_str: str) -> pd.Timestamp:
+    """
+    Parse an ISO 8601 string into a timezone-naive UTC Timestamp.
+
+    - Reuses _iso_utc_str for normalization & UTC handling.
+    - Returns a naive pd.Timestamp.
+    """
+    return pd.to_datetime(_iso_utc_str(dt_str))
+
+
+def _naive_utc_ts(dt_like) -> pd.Timestamp:
+    """
+    Convert a datetime-like to a tz-naive UTC midnight timestamp.
+    """
+    # tz-aware UTC → midnight → tz-naive
+    ts = pd.to_datetime(dt_like, utc=True).normalize()
+    return ts.tz_localize(None)
+
+
+def _naive_utc_ndarray(values) -> pd.DatetimeIndex:
+    """
+    Convert an array of datetime-like values to tz-naive UTC midnights.
+    """
+    ts = pd.to_datetime(values, utc=True).normalize()
+    return ts.tz_localize(None)
+
+
 def _normalize_times(base_time: str, forecast_time: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     """
-    Parse and normalize base and forecast time strings into naive pandas Timestamps.
-    Accepts flexible ISO-like formats (with/without 'Z') and normalizes to seconds.
+    Normalize base and forecast times to tz-naive UTC midnights.
 
-    Returns
-    -------
-    tuple[pd.Timestamp, pd.Timestamp]
-        A pair `(base_ts, fcst_ts)` of naive `pd.Timestamp` objects normalized
-        to whole seconds.
+    Args:
+        base_time (str): Base time in ISO8601 format.
+        forecast_time (str): Forecast time in ISO8601 format.
+
+    Returns:
+        tuple[pd.Timestamp, pd.Timestamp]: Normalized base and forecast times.
     """
-    return _iso_naive_utc(base_time), _iso_naive_utc(forecast_time)
+    return _naive_utc_ts(base_time), _naive_utc_ts(forecast_time)
 
 
 def _match_base_time(ds: xr.Dataset, req_base: pd.Timestamp) -> pd.Timestamp:
     """
-    Match a requested base time to the Dataset's 'base_time' coordinate.
-
-    Steps:
-    1) Normalize all dataset base times to timezone-naive, second precision.
-    2) Try an exact match with `req_base`.
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        Dataset that must contain a 'base_time' coordinate.
-    req_base : pd.Timestamp
-        Requested base (initialization) time; expected to be naive and at
-        second precision.
-
-    Returns
-    -------
-    pd.Timestamp
-        The matched base time (naive, second precision).
-
-    Raises
-    ------
-    ValueError
-        If 'base_time' is missing or no suitable match is found.
-
-    Notes
-    -----
-    All dataset base times are made naive (`tz_localize(None)`) and trimmed to
-    second precision (microseconds set to 0) before comparison.
+    Match a requested base date to the Dataset's 'base_time' coordinate.
+    Ignore hours; select any timestamp whose UTC date equals the requested date.
+    Prefer 00Z if available for that date; otherwise choose the earliest hour.
+    Return tz-naive, second-precision pandas Timestamp taken from the dataset.
     """
     if "base_time" not in ds.coords:
         raise ValueError("Dataset is missing 'base_time' coordinate.")
 
-    # Enforce 00Z if that's the only valid cycle in your data
-    if req_base.hour != 0:
+    # Normalize request to UTC date (00:00 on that date in UTC, used only for comparison)
+    req_date_utc = pd.to_datetime(req_base, utc=True).normalize().date()
+
+    # Dataset base_time values as UTC-aware for comparison and naive for return
+    base_vals_utc = pd.to_datetime(ds["base_time"].values, utc=True)
+    if base_vals_utc.size == 0:
+        raise ValueError("Dataset has no base_time values.")
+
+    # Filter all candidates on the same UTC date
+    same_date_idx = [i for i, ts in enumerate(base_vals_utc) if ts.date() == req_date_utc]
+    if not same_date_idx:
+        # Build a hint of available UTC dates
+        unique_dates = sorted({ts.date() for ts in base_vals_utc})
+        hint = ", ".join(d.isoformat() for d in unique_dates[:5])
         raise ValueError(
-            f"Expected base_time at 00Z; got {req_base.isoformat(timespec='seconds')}."
+            f"base_date '{req_date_utc.isoformat()}' not found. "
+            + (f"Available dates: {hint}" if hint else "No base dates available.")
         )
 
-    # Normalize dataset coordinate values to naive, second precision
-    base_vals = pd.to_datetime(ds["base_time"].values)
-    base_vals = pd.to_datetime(
-        [pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals]
-    )
+    # Prefer 00Z if present, else earliest hour for that date
+    same_date_ts = [base_vals_utc[i] for i in same_date_idx]
+    same_date_ts.sort()  # ascending by hour
+    chosen = next((ts for ts in same_date_ts if ts.hour == 0), same_date_ts[0])
 
-    match_idx = np.where(base_vals == req_base)[0]
-    if match_idx.size == 0:
-        same_day = [bv for bv in base_vals if bv.date() == req_base.date()]
-        hint = ", ".join(pd.Timestamp(x).isoformat(timespec="seconds") for x in same_day[:5])
-        raise ValueError(
-            f"base_time '{req_base.isoformat(timespec='seconds')}' not found (00Z only). "
-            + (f"Available that date: {hint}" if same_day else "No base_time on that date.")
-        )
-
-    # Return as pandas Timestamp (naive, second precision)
-    return pd.Timestamp(base_vals[match_idx[0]])
+    # Return as tz-naive, second-precision
+    return pd.Timestamp(chosen.tz_convert("UTC").tz_localize(None).replace(microsecond=0))
 
 
 def _match_forecast_time(ds: xr.Dataset, matched_base: pd.Timestamp, req_fcst: pd.Timestamp) -> pd.Timestamp:
     """
-    Match a requested forecast time to the Dataset's 'forecast_time' data variable for
-    a specific base time.
+    Match a requested forecast DATE to the Dataset's 'forecast_time' values
+    for a specific base_time. Ignore hours and match only by date.
 
-    This performs an exact label match at second precision against the list of
-    forecast times available for `matched_base`. If no match is found, a helpful
-    error is raised showing a few available examples.
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-        Dataset containing 'base_time' coordinate and 'forecast_time' data variable.
-    matched_base : pd.Timestamp
-        The already-matched base (initialization) time, expected to be timezone-naive
-        and trimmed to second precision.
-    req_fcst : pd.Timestamp
-        Requested forecast valid time, expected to be timezone-naive and at
-        second precision.
+    If multiple forecast times exist on that date:
+      - Prefer 00Z if present.
+      - Otherwise, use the earliest hour.
 
     Returns
     -------
     pd.Timestamp
-        The matched forecast time (naive, second precision). On success this is the
-        same value as `req_fcst`.
-
-    Raises
-    ------
-    ValueError
-        If 'forecast_time' data variable is missing in `ds`, or if `req_fcst` is not
-        present for the given `matched_base`.
-
-    Notes
-    -----
-    - Dataset forecast times are normalized to timezone-naive, second precision
-      before comparison.
-    - Only exact matches are supported
-    - 'forecast_time' is now a data variable, not a coordinate
+        The matched forecast time (tz-naive, second precision).
     """
     if "forecast_time" not in ds.data_vars:
         raise ValueError("Dataset is missing 'forecast_time' data variable.")
 
-    # Select the forecast_time values for the specific base_time
+    # Select the forecast_time values for this base_time
     ds_bt = ds.sel(base_time=matched_base)
-    fcst_vals = pd.to_datetime(ds_bt["forecast_time"].values)
-    fcst_vals = [pd.Timestamp(x).tz_localize(None).replace(microsecond=0) for x in fcst_vals]
+    fcst_vals_utc = pd.to_datetime(ds_bt["forecast_time"].values, utc=True)
 
-    try:
-        next(i for i, v in enumerate(fcst_vals) if v == req_fcst)
-    except StopIteration:
-        hint = ", ".join(pd.Timestamp(x).isoformat(timespec="seconds") for x in fcst_vals[:5])
+    if fcst_vals_utc.size == 0:
+        raise ValueError(f"No forecast times available for base_time '{matched_base.isoformat()}'.")
+
+    # Normalize the request to its UTC date
+    req_date = pd.to_datetime(req_fcst, utc=True).normalize().date()
+
+    # Find all candidates with that same date
+    same_date = [ts for ts in fcst_vals_utc if ts.date() == req_date]
+    if not same_date:
+        # No match → build a helpful error with available forecast dates
+        unique_dates = sorted({ts.date() for ts in fcst_vals_utc})
+        examples = ", ".join(d.isoformat() for d in unique_dates[:5])
         raise ValueError(
-            f"forecast_time '{req_fcst.isoformat()}' not found for base_time '{matched_base.isoformat()}'. "
-            f"Available examples: {hint}"
+            f"forecast_date '{req_date.isoformat()}' not found for base_time '{matched_base.isoformat()}'. "
+            f"Available dates: {examples}"
         )
-    return req_fcst
+
+    # Sort the candidates and pick 00Z if present, else the first available hour
+    same_date.sort()
+    chosen = next((ts for ts in same_date if ts.hour == 0), same_date[0])
+
+    # Return tz-naive, second precision
+    return pd.Timestamp(chosen.tz_convert("UTC").tz_localize(None).replace(microsecond=0))

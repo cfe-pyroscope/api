@@ -1,7 +1,6 @@
 
 import numpy as np
 import xarray as xr
-from typing import Optional, List
 
 
 def _agg_mean_median(da: xr.DataArray) -> tuple[float | None, float | None]:

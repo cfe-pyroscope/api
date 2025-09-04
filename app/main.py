@@ -7,6 +7,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import available_dates, by_date, by_forecast, heatmap, latest_date, time_series, tooltip
 
+# don't delete, otherwise it doesn't work on my labtop (Marina)
+try:
+    import os
+    from pyproj import datadir
+    proj_dir = datadir.get_data_dir()
+    os.environ["PROJ_DATA"] = proj_dir
+    os.environ["PROJ_LIB"]  = proj_dir
+except Exception:
+    pass
+
+
 
 app = FastAPI(
     title="Fire Front Radar API",

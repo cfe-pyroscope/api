@@ -123,23 +123,6 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
         - vmin: minimum data value used for the color scale.
         - vmax: maximum data value used for the color scale.
 
-    Raises
-    ------
-    Exception
-        Any errors from I/O, time matching, selection, reprojection, or rendering
-        are logged with stack traces and re-raised. Examples include:
-        - File/connection errors while loading Zarr
-        - Value/Key errors during time/variable selection
-        - Projection/resampling failures
-
-    Side Effects
-    ------------
-    - Logs progress and debug information at INFO level (steps A—E) via the
-      module-level `logger`.
-    - Computes and logs subset statistics via `_log_subset_stats`.
-    - Forces data materialization for the spatial subset (`.load()`), which may
-      trigger Dask execution.
-
     Workflow Details
     ----------------
     1) `_load_zarr(index)` loads the dataset.
