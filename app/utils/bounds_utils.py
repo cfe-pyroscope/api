@@ -75,11 +75,6 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
             Subset of the input data containing only points within the bounding box.
             If no `bbox` is provided, returns the full input extent.
 
-    Raises:
-        ValueError:
-            - If `param` is missing when a Dataset is provided.
-            - If the input object does not have both `lat` and `lon` coordinates.
-
     Notes:
         - Antimeridian handling: If `lon_min > lon_max` after transformation,
           the function assumes the bounding box crosses the antimeridian and
@@ -87,9 +82,6 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
         - Latitude bounds are automatically reordered if inverted (min > max)
           after coordinate transformation.
         - Minor floating-point precision drift is clamped during coordinate checks.
-
-    Example:
-        >>> _extract_spatial_subset(ds, param="temperature", bbox="-8237642,4970351,-8235642,4972351")
     """
     # Resolve to DataArray
     if isinstance(ds_or_da, xr.Dataset):
