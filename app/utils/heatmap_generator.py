@@ -13,6 +13,7 @@ import matplotlib
 from utils.zarr_handler import _load_zarr, _slice_field, _select_first_param
 from utils.bounds_utils import _extract_spatial_subset, _reproject_and_prepare
 from utils.time_utils import _normalize_times, _match_base_time, _match_forecast_time
+from config.config import COLORS, RANGE
 
 matplotlib.use("Agg")
 logger = logging.getLogger("uvicorn")
@@ -77,15 +78,6 @@ def _render_from_subset(index: str, subset: xr.DataArray) -> tuple[io.BytesIO, l
         - Spatial extent as `[xmin, ymin, xmax, ymax]`.
         - Minimum data value used for rendering (vmin).
         - Maximum data value used for rendering (vmax).
-
-    Side Effects
-    ------------
-    Logs an INFO-level message with the prepared array shape and extent.
-
-    Notes
-    -----
-    - The exact output format and color mapping are determined by `render_heatmap`.
-    - Any errors arising from reprojection or rendering propagate to the caller.
     """
     data, extent = _reproject_and_prepare(subset)
     logger.info(f"🚩 E - data.shape: {data.shape}, extent: {extent}")
@@ -191,19 +183,18 @@ def render_heatmap(index: str, data: np.ndarray, extent: list[float]) -> tuple[i
     masked_data = np.ma.masked_where((masked_data == 0), masked_data)
 
     # Build colormap (masked values are fully transparent)
-    colors = [(0, 0, 0, 0), "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
-              "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]
-    cmap = ListedColormap(colors)
+
+    cmap = ListedColormap(COLORS)
     cmap.set_bad(color=(0, 0, 0, 0))  # transparent for masked
 
     # Determine vmin/vmax according to the index
     idx = (index or "").lower()
     if idx == "pof":
-        vmin, vmax = 0.0, 0.05
+        vmin, vmax = RANGE["pof"]
         logger.info("📏 POF fixed scaling: [vmin=0.00, vmax=0.05] — values ≥ 0.05 will be max color.")
     elif idx == "fopi":
-        vmin, vmax = 0.0, 1.0
-        logger.info("📏 FOPI fixed scaling: [vmin=0.00, vmax=1.00].")
+        vmin, vmax = RANGE["fopi"]
+        logger.info("📏 FOPI fixed scaling: [vmin=0.0, vmax=1.0].")
     else:
         # Robust scaling for everything else, using valid, non-masked values
         valid_data = masked_data.compressed()  # 1D ndarray of finite, unmasked values
@@ -219,7 +210,7 @@ def render_heatmap(index: str, data: np.ndarray, extent: list[float]) -> tuple[i
                 vmax = vmin + 1e-6
             logger.info(f"📊 Default scaling - Display range: [{vmin:.6g}, {vmax:.6g}] (robust 2–98th).")
         else:
-            vmin, vmax = 0.0, 1.0
+            vmin, vmax = RANGE["default"]
             logger.warning("⚠️ No valid data found for default scaling; using fallback [0, 1].")
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")

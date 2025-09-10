@@ -11,7 +11,7 @@ from utils.time_utils import (
     _iso_utc_str,
 )
 from utils.stats import _agg_mean_median
-from utils.bounds_utils import _extract_spatial_subset
+from utils.bounds_utils import _extract_spatial_subset, _bbox_to_latlon
 
 from config.config import settings
 from config.logging_config import logger
@@ -85,11 +85,14 @@ async def time_series(
         # Base-time timestamps → ISO strings (UTC with trailing 'Z')
         timestamps_iso = [_iso_utc_str(pd.Timestamp(t)) for t in bt_coord]
 
+        lat_lon_coords = _bbox_to_latlon(bbox) if bbox else None
+
         response = {
             "index": index.lower(),
             "mode": "by_base_time",
             "stat": ["mean", "median"],
             "bbox_epsg3857": unquote(bbox) if bbox else None,
+            "bbox_epsg4326": lat_lon_coords,  # lon_min, lat_min, lon_max, lat_max
             "timestamps": timestamps_iso,   # x-axis is base_time runs
             "mean": mean_vals,
             "median": median_vals,

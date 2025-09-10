@@ -18,6 +18,20 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",
 # Base dir of config.py
 BASE_DIR = Path(__file__).parent.resolve()
 
+""" official palette"""
+COLORS = [(0, 0, 0, 0), "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
+          "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]
+
+""" echarts palette
+COLORS = [(0, 0, 0, 0), "#E3E8DA", "#C2DBC0", "#FFBF00", "#CC9A03",
+          "#C45B2C", "#AD3822", "#951517", "#3A072C", "#0F0A0A"]"""
+
+RANGE = {
+    "pof": [0.0, 0.05],
+    "fopi": [0.0, 1.0],
+    "default": [0.0, 1.0]
+}
+
 
 class Settings(BaseSettings):
     STORAGE_ROOT: Path = (BASE_DIR / "../../data").resolve()
@@ -39,6 +53,7 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "extra": "allow"
     }
+
 
 settings = Settings()
 

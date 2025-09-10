@@ -113,7 +113,8 @@ fs = fsspec.filesystem(
 )
 
 # Inner Zarr directory
-zarr_rel = "fopi/fopi.zarr/fopi.zarr/"
+index_name = "fopi"
+zarr_rel = f"{index_name}/{index_name}.zarr/{index_name}.zarr/"
 
 # Create fsspec mapper
 store = fs.get_mapper(zarr_rel)
@@ -124,6 +125,7 @@ try:
     print("Successfully opened Zarr group")
 
     # Get Zarr size information
+    print(f"\n=== {index_name.upper()} INDEX ===")
     print("\n=== ZARR SIZE ANALYSIS ===")
     size_info = get_zarr_size_info(zarr_group)
     print(f"Total uncompressed size: {size_info['total_size_gb']:.2f} GB")

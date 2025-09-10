@@ -154,7 +154,7 @@ fs = fsspec.filesystem(
 )
 
 
-index = "pof"
+index = "fopi"
 
 # Build paths dynamically
 zarr_rel = f"{index}/{index}.zarr/{index}.zarr/"
