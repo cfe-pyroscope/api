@@ -171,6 +171,4 @@ data/zarr/fopi/*
 data/zarr/pof/*
 *.zip
 *.nc
-misc/download_zarr_from_webdav.py
-misc/get_data_from_webdav.py
 requirements.txt

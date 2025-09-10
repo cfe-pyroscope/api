@@ -48,6 +48,21 @@ def _parse_coords(coords: str) -> tuple[float, float]:
     return x, y
 
 
+def _bbox_to_latlon(bbox_str: str):
+    """
+    Convert 'x_min,y_min,x_max,y_max' from EPSG:3857 → EPSG:4326.
+    Returns tuple (lon_min, lat_min, lon_max, lat_max).
+    """
+    bbox = unquote(bbox_str).strip()
+    x_min, y_min, x_max, y_max = map(float, bbox.split(","))
+
+    transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+    lon_min, lat_min = transformer.transform(x_min, y_min)
+    lon_max, lat_max = transformer.transform(x_max, y_max)
+
+    return lon_min, lat_min, lon_max, lat_max
+
+
 def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
     """
     Extract a spatial subset from a DataArray or a Dataset variable using an optional bounding box.
@@ -75,11 +90,6 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
             Subset of the input data containing only points within the bounding box.
             If no `bbox` is provided, returns the full input extent.
 
-    Raises:
-        ValueError:
-            - If `param` is missing when a Dataset is provided.
-            - If the input object does not have both `lat` and `lon` coordinates.
-
     Notes:
         - Antimeridian handling: If `lon_min > lon_max` after transformation,
           the function assumes the bounding box crosses the antimeridian and
@@ -87,9 +97,6 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
         - Latitude bounds are automatically reordered if inverted (min > max)
           after coordinate transformation.
         - Minor floating-point precision drift is clamped during coordinate checks.
-
-    Example:
-        >>> _extract_spatial_subset(ds, param="temperature", bbox="-8237642,4970351,-8235642,4972351")
     """
     # Resolve to DataArray
     if isinstance(ds_or_da, xr.Dataset):
@@ -104,11 +111,7 @@ def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
 
     # If bbox present, transform EPSG:3857 -> EPSG:4326
     if bbox:
-        bbox = _decode_coords(bbox).strip()
-        x_min, y_min, x_max, y_max = map(float, bbox.split(","))
-        transformer = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
-        lon_min, lat_min = transformer.transform(x_min, y_min)
-        lon_max, lat_max = transformer.transform(x_max, y_max)
+        lon_min, lat_min, lon_max, lat_max = _bbox_to_latlon(bbox)
     else:
         lat_min, lat_max = float(da.lat.min()), float(da.lat.max())
         lon_min, lon_max = float(da.lon.min()), float(da.lon.max())
@@ -159,13 +162,6 @@ def _reproject_and_prepare(subset):
         - Uses bilinear resampling via `rasterio.enums.Resampling.bilinear`.
         - Vertical flip is applied if y-coordinates are ascending.
         - The extent is padded by half a pixel on all sides to align with pixel centers.
-
-    Example:
-        >>> data, extent = _reproject_and_prepare(subset)
-        >>> data.shape
-        (256, 256)
-        >>> extent
-        [-8237642.0, -8235642.0, 4970351.0, 4972351.0]
     """
     rasterio.show_versions()
     subset_rio = subset.rio.write_crs(4326).rio.set_spatial_dims(x_dim="lon", y_dim="lat")

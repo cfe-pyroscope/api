@@ -63,11 +63,6 @@ def _select_first_param(ds: xr.Dataset) -> str:
     str
         The name of the first data variable according to `ds.data_vars` ordering,
         excluding 'forecast_time'.
-
-    Raises
-    ------
-    ValueError
-        If the dataset contains no data variables (excluding 'forecast_time').
     """
     # Get all data variables except 'forecast_time' which is metadata
     data_vars = [var for var in ds.data_vars.keys() if var != 'forecast_time']
