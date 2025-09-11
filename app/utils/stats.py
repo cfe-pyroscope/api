@@ -11,25 +11,6 @@ def _agg_mean_median(da: xr.DataArray) -> tuple[float | None, float | None]:
     and computes statistics over the `lat` and `lon` dimensions if they are present.
     If neither `lat` nor `lon` is present, it assumes the array contains a single
     scalar value and returns that value for both statistics.
-
-    The function is robust to:
-      - Missing `lat`/`lon` dimensions (returns the scalar value).
-      - Empty arrays (returns `(None, None)`).
-      - All-NaN values (returns `(None, None)`).
-      - Non-float inputs (attempts to cast to float, otherwise returns `None`).
-
-    Parameters
-    ----------
-    da : xr.DataArray
-        The input data to aggregate. May or may not have `lat` and/or `lon`
-        dimensions.
-
-    Returns
-    -------
-    tuple of (float | None, float | None)
-        A tuple `(mean, median)` where:
-          - Each value is a `float`.
-          - `None` if the corresponding statistic is NaN or cannot be computed.
     """
 
     dims = [d for d in ("lat", "lon") if d in da.dims]

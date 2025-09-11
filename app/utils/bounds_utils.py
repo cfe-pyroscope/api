@@ -65,71 +65,75 @@ def _bbox_to_latlon(bbox_str: str):
 
 def _extract_spatial_subset(ds_or_da, param: str = None, bbox: str = None):
     """
-    Extract a spatial subset from a DataArray or a Dataset variable using an optional bounding box.
+    Return a lat/lon spatial subset of a DataArray (or Dataset variable).
 
-    This function accepts either:
-    - A 2D xarray.DataArray with latitude (`lat`) and longitude (`lon`) coordinates, or
-    - An xarray.Dataset with a specified `param` key selecting the variable of interest.
+    - Accepts an xarray.DataArray, or an xarray.Dataset plus `param` to select a variable.
+    - If `bbox` is given, it must be an EPSG:3857 bbox string (possibly URL-encoded)
+      in "x_min,y_min,x_max,y_max". It is transformed to EPSG:4326 (lon/lat).
+    - Bounds are made antimeridian-aware and padded by ~½ a grid step so very small
+      boxes still capture at least one pixel. If the result is still empty, it snaps
+      to the nearest grid point at the bbox center.
+    - Expects `lat` and `lon` coordinates; raises if missing.
 
-    If a `bbox` is provided, it should be in EPSG:3857 coordinates and will be transformed
-    to EPSG:4326 (longitude/latitude). The subset operation is aware of antimeridian
-    crossings in the [-180, 180) longitude convention.
-
-    Args:
-        ds_or_da (xarray.DataArray | xarray.Dataset):
-            Input spatial dataset. Must have `lat` and `lon` coordinates.
-        param (str, optional):
-            Name of the variable to extract when passing a Dataset. Required if `ds_or_da` is a Dataset.
-        bbox (str, optional):
-            Bounding box in EPSG:3857 coordinates, formatted as:
-            "x_min,y_min,x_max,y_max".
-            If omitted, the entire spatial extent of the dataset is used.
-
-    Returns:
-        xarray.DataArray:
-            Subset of the input data containing only points within the bounding box.
-            If no `bbox` is provided, returns the full input extent.
-
-    Notes:
-        - Antimeridian handling: If `lon_min > lon_max` after transformation,
-          the function assumes the bounding box crosses the antimeridian and
-          applies a logical OR mask to select the correct range.
-        - Latitude bounds are automatically reordered if inverted (min > max)
-          after coordinate transformation.
-        - Minor floating-point precision drift is clamped during coordinate checks.
+    Returns
+    -------
+    xarray.DataArray
+        The subset with `lat`/`lon` reduced to the requested region.
     """
-    # Resolve to DataArray
-    if isinstance(ds_or_da, xr.Dataset):
-        if not param:
-            raise ValueError("param is required when passing a Dataset.")
-        da = ds_or_da[param]
-    else:
-        da = ds_or_da
-
+    da = ds_or_da[param] if isinstance(ds_or_da, xr.Dataset) else ds_or_da
     if not all(c in da.coords for c in ("lat", "lon")):
         raise ValueError(f"Expected 'lat' and 'lon' coordinates; got dims={da.dims}")
 
-    # If bbox present, transform EPSG:3857 -> EPSG:4326
+    # ---- 3857 → 4326
     if bbox:
-        lon_min, lat_min, lon_max, lat_max = _bbox_to_latlon(bbox)
+        lon_min, lat_min, lon_max, lat_max = _bbox_to_latlon(bbox)  # (lon, lat) order
     else:
         lat_min, lat_max = float(da.lat.min()), float(da.lat.max())
         lon_min, lon_max = float(da.lon.min()), float(da.lon.max())
 
-    # Clamp tiny fp drift and ensure latitude ordering
     if lat_min > lat_max:
         lat_min, lat_max = lat_max, lat_min
 
-    # Antimeridian-aware longitude mask for [-180,180)
-    # crossing happens when lon_min > lon_max (e.g., 170 -> -170)
-    crosses = lon_min > lon_max
-    if crosses:
-        lon_mask = (da.lon >= lon_min) | (da.lon <= lon_max)
-    else:
-        lon_mask = (da.lon >= lon_min) & (da.lon <= lon_max)
+    # ---- estimate grid step and pad ~½ a cell so tiny boxes still hit pixels
+    def _step(coord):
+        if coord.size <= 1:
+            return 0.0
+        try:
+            d = np.diff(coord.values)
+        except Exception:
+            d = coord.diff(coord.dims[0]).values
+        return float(np.nanmedian(np.abs(d)))
 
-    lat_mask = (da.lat >= lat_min) & (da.lat <= lat_max)
-    return da.where(lat_mask & lon_mask, drop=True)
+    lon_step = _step(da.lon)
+    lat_step = _step(da.lat)
+    pad_lon = 0.51 * lon_step if lon_step > 0 else 0.0
+    pad_lat = 0.51 * lat_step if lat_step > 0 else 0.0
+
+    lon_min_e = lon_min - pad_lon
+    lon_max_e = lon_max + pad_lon
+    lat_min_e = lat_min - pad_lat
+    lat_max_e = lat_max + pad_lat
+
+    # ---- antimeridian-aware mask
+    crosses = lon_min_e > lon_max_e
+    if crosses:
+        lon_mask = (da.lon >= lon_min_e) | (da.lon <= lon_max_e)
+    else:
+        lon_mask = (da.lon >= lon_min_e) & (da.lon <= lon_max_e)
+    lat_mask = (da.lat >= lat_min_e) & (da.lat <= lat_max_e)
+
+    out = da.where(lat_mask & lon_mask, drop=True)
+
+    # ---- fallback: still empty? snap to nearest grid point at bbox center
+    if out.sizes.get("lat", 0) == 0 or out.sizes.get("lon", 0) == 0:
+        lon_c = (lon_min + lon_max) / 2.0
+        lat_c = (lat_min + lat_max) / 2.0
+        # find nearest coordinates
+        nearest = da.sel(lon=lon_c, lat=lat_c, method="nearest")
+        # re-select with those coords to keep 2D dims
+        out = da.sel(lon=[float(nearest.lon)], lat=[float(nearest.lat)])
+
+    return out
 
 
 def _reproject_and_prepare(subset):
@@ -143,20 +147,6 @@ def _reproject_and_prepare(subset):
     4. Fills NaN values with zeros and flips the data vertically if needed so the
        origin is at the top-left (common for raster images).
     5. Computes the bounding box extent in projected coordinates.
-
-    Args:
-        subset (xarray.DataArray):
-            Input data array with `lat` and `lon` coordinates in EPSG:4326.
-
-    Returns:
-        tuple:
-            - **numpy.ndarray**:
-                2D array of reprojected data, with NaNs replaced by `0.0` and
-                potentially flipped vertically for correct raster orientation.
-            - **list[float]**:
-                Bounding box extent in EPSG:3857 as
-                `[x_min, x_max, y_min, y_max]`, with edges expanded by half a pixel
-                to match raster conventions.
 
     Notes:
         - Uses bilinear resampling via `rasterio.enums.Resampling.bilinear`.
