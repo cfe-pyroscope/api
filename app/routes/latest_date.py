@@ -31,6 +31,5 @@ def get_latest_date(
 
     latest_ts = base_times.max()
     return {
-        "latest_date": latest_ts.strftime("%Y-%m-%d"),
-        "latest_date_utc": latest_ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "latest_date": latest_ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }

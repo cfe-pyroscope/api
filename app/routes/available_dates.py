@@ -30,10 +30,8 @@ def fetch_available_dates(
         logger.exception("❌ Failed to get available dates")
         raise HTTPException(status_code=400, detail=str(e))
 
-    dates_compact = base_times.strftime("%Y-%m-%d").tolist()
     dates_iso_utc = base_times.strftime("%Y-%m-%dT%H:%M:%SZ").tolist()
 
     return {
-        "available_dates": dates_compact,
-        "available_dates_utc": dates_iso_utc
+        "available_dates": dates_iso_utc
     }
