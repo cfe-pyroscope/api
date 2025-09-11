@@ -19,10 +19,10 @@ async def get_forecast_time(
     ),
 ) -> dict:
     """
-    Get forecast times for a dataset at a given base time.
-    Loads the Zarr store for the given `index` and finds forecast steps
-    associated with the specified `base_time`. Returns the matched base
-    time and a list of forecast times in ISO8601 UTC format.
+    Return forecast dates for the given base_time using coord-based selection from the Zarr store.
+    Robust to unsorted/mixed-timezone coords: we match the exact base_time label, not its position.
+    For each calendar day, keep a single timestamp (prefer 00Z, else earliest hour), then sort by date.
+    Outputs ISO8601 UTC (“Z”) strings; the returned base_time is the dataset’s exact matched label.
     """
     try:
         ds = _load_zarr(index)
