@@ -18,17 +18,22 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",
 # Base dir of config.py
 BASE_DIR = Path(__file__).parent.resolve()
 
-""" official palette"""
-COLORS = [(0, 0, 0, 0), "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
-          "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]
+""" official palette 5 """
+COLORS = ["#00000000", "#fff7ec", "#fdbb84",
+          "#ef6548", "#d7301f", "#7f0000"]
+
+""" official palette 10
+COLORS = ["#00000000", "#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84",
+          "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]"""
+
 
 """ echarts palette
-COLORS = [(0, 0, 0, 0), "#E3E8DA", "#C2DBC0", "#FFBF00", "#CC9A03",
+COLORS = ["#00000000", "#E3E8DA", "#C2DBC0", "#FFBF00", "#CC9A03",
           "#C45B2C", "#AD3822", "#951517", "#3A072C", "#0F0A0A"]"""
 
 RANGE = {
-    "pof": [0.0, 0.05],
-    "fopi": [0.0, 1.0],
+    "pof": [0.0, 0.0025, 0.0075, 0.015, 0.030, 0.050],
+    "fopi": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
     "default": [0.0, 1.0]
 }
 

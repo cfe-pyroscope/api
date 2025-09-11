@@ -95,21 +95,19 @@ def generate_heatmap_image(index: str, base_time: str, forecast_time: str, bbox:
 
 def render_heatmap(index: str, data: np.ndarray, extent: list[float]) -> tuple[io.BytesIO, list[float], float, float]:
     """
-    Render a transparent PNG heatmap from a 2D raster array, using *discrete* color classes.
+    Render a transparent-background heatmap PNG from a 2D raster array.
 
-    Rules
-    -----
-    - POF  : thresholds from RANGE["pof"]; values >= max threshold use the top class.
-    - FOPI : thresholds from RANGE["fopi"]; values >= max threshold use the top class.
-    - other: robust [p2, p98] and split into len(COLORS)-1 bins.
+    Scaling rules:
+      - POF  : fixed [0.0, 0.05], values >= 0.05 are max category.
+      - FOPI : fixed [0.0, 1.0], linear from no risk to max risk.
+      - other: robust [p2, p98] from valid (non-masked, finite) data.
 
     Notes
     -----
     - 'extent' must be [xmin, xmax, ymin, ymax] for imshow.
     - Zeros, NaN, and Inf are masked (transparent).
-    - COLORS[0] is reserved for transparency (masked); not used for data.
     """
-    # ---- figure sizing
+    # Figure sizing based on extent
     x_range = extent[1] - extent[0]
     y_range = extent[3] - extent[2]
     aspect_ratio = (x_range / y_range) if y_range else 1.0
@@ -122,67 +120,46 @@ def render_heatmap(index: str, data: np.ndarray, extent: list[float]) -> tuple[i
     fig.patch.set_alpha(0)
     ax.patch.set_alpha(0)
 
-    # ---- mask invalid + zeros
+    # Mask invalid + zeros (e.g., ocean/nodata)
     masked_data = np.ma.masked_invalid(data)
     masked_data = np.ma.masked_where((masked_data == 0), masked_data)
 
-    # ---- build discrete colormap + norm from thresholds
+    # Build colormap (masked values are fully transparent)
+
+    cmap = ListedColormap(COLORS)
+    cmap.set_bad(color=(0, 0, 0, 0))  # transparent for masked
+
+    # Determine vmin/vmax according to the index
     idx = (index or "").lower()
-
-    def _build_bins_and_cmap(idx: str, masked: np.ma.MaskedArray):
-        # colors for data classes (COLORS[0] is the fully transparent "bad/masked" color)
-        max_bins_supported = len(COLORS) - 1
-
-        if idx in ("pof", "fopi"):
-            thresholds = np.array(RANGE[idx], dtype=float)
-            vmin, vmax = float(thresholds[0]), float(thresholds[-1])
-            n_bins = thresholds.size - 1
-            palette = COLORS[1:1 + n_bins]  # one color per bin
-            logger.info(f"📏 {idx.upper()} thresholds: {thresholds.tolist()} → {n_bins} bins.")
-        else:
-            valid = masked.compressed()
-            if valid.size:
-                p2 = float(np.percentile(valid, 2))
-                p98 = float(np.percentile(valid, 98))
-                if not np.isfinite(p2) or not np.isfinite(p98) or p2 == p98:
-                    vmin, vmax = float(np.min(valid)), float(np.max(valid))
-                else:
-                    vmin, vmax = p2, p98
-                if vmin == vmax:
-                    vmax = vmin + 1e-6
-                logger.info(f"📊 Default robust range: [{vmin:.6g}, {vmax:.6g}] (2–98th).")
+    if idx == "pof":
+        vmin, vmax = RANGE["pof"]
+        logger.info("📏 POF fixed scaling: [vmin=0.00, vmax=0.05] — values ≥ 0.05 will be max color.")
+    elif idx == "fopi":
+        vmin, vmax = RANGE["fopi"]
+        logger.info("📏 FOPI fixed scaling: [vmin=0.0, vmax=1.0].")
+    else:
+        valid_data = masked_data.compressed()  # 1D ndarray of finite, unmasked values
+        if valid_data.size:
+            p2 = float(np.percentile(valid_data, 2))
+            p98 = float(np.percentile(valid_data, 98))
+            if not np.isfinite(p2) or not np.isfinite(p98) or p2 == p98:
+                vmin = float(np.min(valid_data))
+                vmax = float(np.max(valid_data))
             else:
-                vmin, vmax = RANGE["default"]
-                logger.warning("⚠️ No valid data for default scaling; using fallback [0, 1].")
-
-            # create evenly spaced class boundaries across [vmin, vmax]
-            n_bins = max_bins_supported
-            thresholds = np.linspace(vmin, vmax, n_bins + 1)
-            palette = COLORS[1:1 + n_bins]
-
-        # discrete colormap (masked values remain transparent)
-        cmap = ListedColormap(palette)
-        cmap.set_bad(color=(0, 0, 0, 0))
-
-        # BoundaryNorm maps each interval [b_i, b_{i+1}) to a color index
-        # clip=True: values > thresholds[-1] go to the top bin; < thresholds[0] to the bottom bin
-        norm = BoundaryNorm(thresholds, ncolors=len(palette), clip=True)
-        return cmap, norm, float(thresholds[0]), float(thresholds[-1]), thresholds
-
-    cmap, norm, vmin, vmax, thresholds = _build_bins_and_cmap(idx, masked_data)
+                vmin, vmax = p2, p98
+            if vmin == vmax:
+                vmax = vmin + 1e-6
+            logger.info(f"📊 Default scaling - Display range: [{vmin:.6g}, {vmax:.6g}] (robust 2–98th).")
+        else:
+            vmin, vmax = RANGE["default"]
+            logger.warning("⚠️ No valid data found for default scaling; using fallback [0, 1].")
 
     logger.info(f"🖼️ Final extent used in imshow (EPSG:3857): {extent}")
-    im = ax.imshow(
-        masked_data,
-        extent=extent,
-        origin="upper",
-        cmap=cmap,
-        norm=norm,          # <- discrete classes based on thresholds
-        interpolation="nearest",
-    )
+    im = ax.imshow(masked_data, extent=extent, origin="upper", cmap=cmap, vmin=vmin, vmax=vmax)
 
     if idx == "pof":
-        logger.info("POF severe threshold 0.05 maps to the top class (values ≥ 0.05).")
+        pos = (0.05 - vmin) / (vmax - vmin) if vmax > vmin else 1.0
+        logger.info(f"POF severe threshold 0.05 maps to the top of the scale (position {pos:.2f}).")
 
     buf = io.BytesIO()
     plt.savefig(

@@ -54,9 +54,10 @@ async def time_series(
         # Optional spatial subsetting (EPSG:3857 bbox -> EPSG:4326 inside utility)
         da_sel = _extract_spatial_subset(da_sel, bbox=bbox)
 
-        ### **************************************************** ###
-        # ---- diagnostics: shape, ranges, data presence ----
 
+        """
+        # ---- diagnostics: shape, ranges, data presence ----
+        
         def _safe_coord_range(da, name):
             if name not in da.coords:
                 return None
@@ -112,13 +113,12 @@ async def time_series(
                 )
 
         logger.info(
-            "🔥🔥🔥🔥 da_sel: sizes=%s lon_rng=%s lat_rng=%s non_null_total=%d has_any_data=%s per_run_head=%s",
+            "da_sel: sizes=%s lon_rng=%s lat_rng=%s non_null_total=%d has_any_data=%s per_run_head=%s",
             sizes, lon_rng, lat_rng, non_null_total, has_any_data, per_run_head,
         )
-
+        
         # ---- END diagnostics ----
-        ### **************************************************** ###
-
+        """
 
         # ---- Compute run-to-run stats without Dask; use _agg_mean_median ----
         mean_vals: list[float | None] = []
