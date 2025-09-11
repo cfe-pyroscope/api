@@ -9,7 +9,6 @@ from config.logging_config import logger
 
 router = APIRouter()
 
-
 @router.get("/{index}/by_forecast")
 def get_forecast_evolution(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
