@@ -4,7 +4,7 @@ from datetime import timedelta
 import pandas as pd
 
 from utils.zarr_handler import _load_zarr
-from utils.time_utils import _iso_utc_str, _iso_naive_utc
+from utils.time_utils import _iso_utc_str, _iso_naive_utc, _normalize_times, _match_base_time
 from config.logging_config import logger
 
 router = APIRouter()
@@ -19,7 +19,7 @@ def get_forecast_evolution(
     """
     Get forecast evolution leading up to a verification time (inclusive).
     Uses the dataset's actual coordinates for the provided base_time to build
-    daily steps from verification-9 days to verification. Ensures results are:
+    daily steps from verification−9 days to verification. Ensures results are:
       - selected by coord label (not position),
       - unique per date (prefer 00Z, else earliest hour),
       - sorted by date ascending,
@@ -29,7 +29,6 @@ def get_forecast_evolution(
         ds = _load_zarr(index)
 
         # Normalize request and match the exact base_time coord label from the dataset
-        from utils.time_utils import _normalize_times, _match_base_time
         req_base, _ = _normalize_times(base_time, base_time)
         matched_base = _match_base_time(ds, req_base)
 

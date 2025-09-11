@@ -27,7 +27,10 @@ async def time_series(
     end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-04T00:00:00Z')."),
 ):
     """
-
+    Build a run-to-run time series (mean & median) over the dataset variable for `index`.
+    Optionally filters base_time to [start_base, end_base] (inclusive) and subsets
+    spatially by `bbox` (EPSG:3857). Returns ISO8601 UTC timestamps (Z) for each run
+    and the corresponding mean/median values aggregated over the spatial slice.
     """
     try:
         # Load Zarr and resolve the variable name based on index
