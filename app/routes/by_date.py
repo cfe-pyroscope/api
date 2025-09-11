@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 from utils.zarr_handler import _load_zarr
-from utils.time_utils import _iso_utc_str, _iso_utc_ndarray
+from utils.time_utils import _normalize_times, _match_base_time, _iso_utc_str, _iso_utc_ndarray
 from config.logging_config import logger
 
 router = APIRouter()
@@ -26,31 +26,33 @@ async def get_forecast_time(
     """
     try:
         ds = _load_zarr(index)
-        base_times = _iso_utc_ndarray(ds["base_time"].values)
 
-        matches = np.where(base_times == base_time)[0]
-        idx = int(matches[0])
-        matched_base = base_times[idx]
+        # --- 1) Normalize the requested base_time and match the actual coord label ---
+        req_base, _ = _normalize_times(base_time, base_time)
+        matched_base = _match_base_time(ds, req_base)
 
-        # logger.info(f"base_time: {base_time}")
-        # logger.info(f"base_times: {base_times}")
-        # logger.info(f"matches: {matches}")
-        # logger.info(f"matched_base: {matched_base}")
+        # --- 2) Select by coord label (not by positional index) ---
+        ds_bt = ds.sel(base_time=matched_base)
+        ft_vals_orig = pd.to_datetime(ds_bt["forecast_time"].values)              # original labels
+        ft_vals_utc = pd.to_datetime(ds_bt["forecast_time"].values, utc=True)     # for comparison/sorting
 
-        # ---- Select the row of forecast_time for this base_time --------------
-        ft_row = ds["forecast_time"].isel(base_time=idx)  # dims: (forecast_index,)
-        ft_vals = _iso_utc_ndarray(ft_row)
+        # --- 3) Group by date: prefer 00Z if present, else earliest hour ---
+        by_date = {}
+        for orig, as_utc in zip(ft_vals_orig, ft_vals_utc):
+            d = as_utc.date()
+            if d not in by_date:
+                by_date[d] = (orig, as_utc)
+            else:
+                best_orig, best_utc = by_date[d]
+                if as_utc.hour == 0 or as_utc < best_utc:
+                    by_date[d] = (orig, as_utc)
 
-        # ---- Build output list per dataset conventions -----------------------
-        seen = set()
-        ordered_unique = []
-        for v in ft_vals:
-            if v not in seen:
-                seen.add(v)
-                ordered_unique.append(v)
-        out_times = ordered_unique
-
-        # logger.info(f"out_times: {out_times}")
+        # --- 4) Sort by date and convert to ISO UTC strings ---
+        out_times = []
+        for d in sorted(by_date.keys()):
+            chosen_orig, _ = by_date[d]
+            chosen = pd.Timestamp(chosen_orig).tz_localize(None).replace(microsecond=0)
+            out_times.append(chosen)
 
         forecast_time = [_iso_utc_str(t) for t in out_times]
 
@@ -65,3 +67,4 @@ async def get_forecast_time(
     except Exception as e:
         logger.exception("❌ Failed to retrieve forecast steps (by_date)")
         return JSONResponse(status_code=400, content={"error": str(e)})
+
