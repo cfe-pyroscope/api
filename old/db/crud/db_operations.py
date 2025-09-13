@@ -2,7 +2,7 @@ from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime, timedelta
 from models.db_tables import Fopi, Pof
-from config.logging_config import logger
+from app.config.logging_config import logger
 
 DATASET_MODELS = {
     "fopi": Fopi,

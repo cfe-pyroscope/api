@@ -1,8 +1,8 @@
 import os
 from sqlmodel import Session, select
-from db.db.session import engine
-from db.file_scanner import scan_storage_files
-from config.config import settings
+from old.db.db.session import engine
+from old.db.file_scanner import scan_storage_files
+from app.config.config import settings
 
 
 def sync_dataset(dataset_name: str, storage_dir: str, table_cls):
@@ -28,7 +28,7 @@ def sync_dataset(dataset_name: str, storage_dir: str, table_cls):
         - Only files with relative paths not already present in the database are added.
         - Files outside the configured storage root are skipped with a warning.
     """
-    # Get absolute root path from config
+    # Get absolute root path from app.config
     root = os.path.abspath(settings.STORAGE_ROOT)
     storage_dir_abs = os.path.abspath(storage_dir)
 

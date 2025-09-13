@@ -40,30 +40,8 @@ x ≈ longitude (east–west), y ≈ latitude (north–south) — both in meters
 
 
 
+null values (turkey-syria)
+http://127.0.0.1:8090/api/pof/time_series?format=json&bbox=4629136.230494904%2C4501655.951943997%2C4631362.620310769%2C4504460.656248137
 
 
 
-pof.zarr structure:
-Dimensions:         (forecast_index: 10, lon: 5136, lat: 2560, base_time: 11)
-Coordinates:
-  * forecast_index  (forecast_index) int64 0 1 2 3 4 5 6 7 8 9
-  * lon             (lon) float64 -180.0 -179.9 -179.9 ... 179.8 179.9 179.9
-  * lat             (lat) float64 89.95 89.88 89.81 ... -89.81 -89.88 -89.95
-  * base_time       (base_time) datetime64[ns] 2025-07-01 ... 2025-07-11
-Data variables:
-    forecast_time   (base_time, forecast_index) datetime64[ns] dask.array<chunksize=(1, 10), meta=np.ndarray>
-    MODEL_FIRE      (base_time, forecast_index, lat, lon) float64 dask.array<chunksize=(1, 1, 2560, 5136), meta=np.ndarray>
-
-
-
-fopi.zarr structure:
-<xarray.Dataset>
-Dimensions:           (base_time: 11, forecast_index: 80, lat: 2560, lon: 5136)
-Coordinates:
-  * base_time         (base_time) datetime64[ns] 2025-07-01 ... 2025-07-11
-  * forecast_index    (forecast_index) int64 0 1 2 3 4 5 6 ... 74 75 76 77 78 79
-  * lat               (lat) float64 89.95 89.88 89.81 ... -89.81 -89.88 -89.95
-  * lon               (lon) float64 -180.0 -179.9 -179.9 ... 179.8 179.9 179.9
-Data variables:
-    forecast_time     (base_time, forecast_index) datetime64[ns] dask.array<chunksize=(1, 80), meta=np.ndarray>
-    param100.128.192  (base_time, forecast_index, lat, lon) float32 dask.array<chunksize=(1, 1, 722, 1284), meta=np.ndarray>

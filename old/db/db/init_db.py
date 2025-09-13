@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel
-from db.db.session import engine
+from old.db.db.session import engine
 
 
 def init_db():

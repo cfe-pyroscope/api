@@ -11,7 +11,7 @@ from utils.time_utils import (
     _iso_utc_str,
 )
 from utils.stats import _agg_mean_median
-from utils.bounds_utils import _extract_spatial_subset
+from utils.bounds_utils import _extract_spatial_subset, _bbox_to_latlon
 
 from config.config import settings
 from config.logging_config import logger
@@ -27,46 +27,98 @@ async def time_series(
     end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-04T00:00:00Z')."),
 ):
     """
-
+    Build a run-to-run time series (mean & median) over the dataset variable for `index`.
+    Optionally filters base_time to [start_base, end_base] (inclusive) and subsets
+    spatially by `bbox` (EPSG:3857). Returns ISO8601 UTC timestamps (Z) for each run
+    and the corresponding mean/median values aggregated over the spatial slice.
     """
     try:
-        # Load Zarr and resolve the variable name based on index
         ds = _load_zarr(index)
-        try:
-            var_name = settings.VAR_NAMES[index]
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Unknown index '{index}': {e}")
-        if var_name not in ds.data_vars:
-            raise HTTPException(status_code=400, detail=f"Variable '{var_name}' not found in dataset for '{index}'.")
-
+        var_name = settings.VAR_NAMES[index]
         da = ds[var_name]
 
-        # Normalize run list (base_time is a coordinate)
-        if "base_time" not in ds.coords:
-            raise HTTPException(status_code=400, detail="Dataset is missing 'base_time' coordinate.")
         base_vals = pd.to_datetime(ds["base_time"].values)
-        # Make naive + second precision
         base_vals = [pd.Timestamp(bv).tz_localize(None).replace(microsecond=0) for bv in base_vals]
+        base_vals_sorted = sorted(base_vals)
 
-        # Optional base_time filtering
         if start_base:
             sb = _iso_drop_tz(start_base)
-            base_vals = [bt for bt in base_vals if bt >= sb]
+            base_vals_sorted = [bt for bt in base_vals_sorted if bt >= sb]
         if end_base:
             eb = _iso_drop_tz(end_base)
-            base_vals = [bt for bt in base_vals if bt <= eb]
-        if not base_vals:
-            raise HTTPException(status_code=404, detail="No base_time runs found for the given filters.")
+            base_vals_sorted = [bt for bt in base_vals_sorted if bt <= eb]
 
-        # Select only those runs (works whether base_time is a dim or coord)
-        da_sel = da.sel(base_time=base_vals)
+        # Select only those runs
+        da_sel = da.sel(base_time=base_vals_sorted)
 
         # Optional spatial subsetting (EPSG:3857 bbox -> EPSG:4326 inside utility)
-        if bbox:
+        da_sel = _extract_spatial_subset(da_sel, bbox=bbox)
+
+
+        """
+        # ---- diagnostics: shape, ranges, data presence ----
+        
+        def _safe_coord_range(da, name):
+            if name not in da.coords:
+                return None
+            n = int(da.sizes.get(name, 0))
+            if n == 0:
+                return None
+            c = da.coords[name]
             try:
-                da_sel = _extract_spatial_subset(da_sel, bbox=bbox)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Invalid bbox or extraction error: {e}")
+                mn = float(c.min().item())
+                mx = float(c.max().item())
+            except Exception:
+                # dask-backed or other edge cases
+                try:
+                    mn = float(c.min().compute().item())
+                    mx = float(c.max().compute().item())
+                except Exception:
+                    return None
+            return (mn, mx)
+
+        sizes = {k: int(v) for k, v in da_sel.sizes.items()}
+
+        lon_rng = _safe_coord_range(da_sel, "lon")
+        lat_rng = _safe_coord_range(da_sel, "lat")
+
+        # total non-null values across all dims
+        if da_sel.size == 0:
+            non_null_total = 0
+        else:
+            try:
+                non_null_total = int(da_sel.count().item())
+            except Exception:
+                non_null_total = int(da_sel.count().compute().item())
+
+        # boolean: do we have any finite data anywhere?
+        if da_sel.size == 0:
+            has_any_data = False
+        else:
+            try:
+                has_any_data = bool(da_sel.notnull().any().item())
+            except Exception:
+                has_any_data = bool(da_sel.notnull().any().compute().item())
+
+        # per-run preview: non-null counts per base_time (first 5)
+        per_run_head = None
+        if "base_time" in da_sel.dims and da_sel.sizes.get("base_time", 0) > 0:
+            reduce_dims = [d for d in ("lat", "lon") if d in da_sel.dims]
+            per_run = da_sel.count(dim=reduce_dims)
+            try:
+                per_run_head = per_run.isel(base_time=slice(0, 5)).astype("int64").values.tolist()
+            except Exception:
+                per_run_head = (
+                    per_run.isel(base_time=slice(0, 5)).compute().astype("int64").values.tolist()
+                )
+
+        logger.info(
+            "da_sel: sizes=%s lon_rng=%s lat_rng=%s non_null_total=%d has_any_data=%s per_run_head=%s",
+            sizes, lon_rng, lat_rng, non_null_total, has_any_data, per_run_head,
+        )
+        
+        # ---- END diagnostics ----
+        """
 
         # ---- Compute run-to-run stats without Dask; use _agg_mean_median ----
         mean_vals: list[float | None] = []
@@ -85,11 +137,18 @@ async def time_series(
         # Base-time timestamps → ISO strings (UTC with trailing 'Z')
         timestamps_iso = [_iso_utc_str(pd.Timestamp(t)) for t in bt_coord]
 
+        if bbox:
+            lon_min, lat_min, lon_max, lat_max = _bbox_to_latlon(bbox)
+            bbox_latlon_flat = (lat_min, lon_min, lat_max, lon_max)
+        else:
+            bbox_latlon_flat = None
+
         response = {
             "index": index.lower(),
             "mode": "by_base_time",
             "stat": ["mean", "median"],
             "bbox_epsg3857": unquote(bbox) if bbox else None,
+            "bbox_epsg4326": bbox_latlon_flat,  # lon_min, lat_min, lon_max, lat_max
             "timestamps": timestamps_iso,   # x-axis is base_time runs
             "mean": mean_vals,
             "median": median_vals,
