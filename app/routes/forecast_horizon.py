@@ -2,11 +2,12 @@
 from fastapi import APIRouter, Query, Path, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional
+from urllib.parse import unquote
 
 import xarray as xr
 from utils.zarr_handler import _load_zarr
-from utils.bounds_utils import _extract_spatial_subset
-from urllib.parse import unquote
+from utils.bounds_utils import _extract_spatial_subset, _bbox_to_latlon
+from utils.time_utils import _iso_utc_str
 
 
 from config.config import settings
@@ -19,14 +20,10 @@ router = APIRouter()
 
 @router.get("/forecast_horizon")
 async def forecast_horizon( 
-    ##index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
+    bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '-489196.9810251281,1565430.33928041,117407.27544603075,1898084.2863774975')"),
     start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-01T00:00:00Z')."),
 ):
     try:
-       
-        print("start base",start_base)
-      
         ds_fopi = _load_zarr('fopi')
         ds_pof = _load_zarr('pof')
 
@@ -45,7 +42,7 @@ async def forecast_horizon(
             lat=slice(max_lat, min_lat)
         )
 
-        print(subset_fopi)
+        # print(subset_fopi)
 
         # collapse lat/lon for regional averages
         subset_mean_pof = subset_pof.mean(dim=["lat", "lon"])
@@ -64,7 +61,6 @@ async def forecast_horizon(
 
         # find max/min of values for setting the axes in front end + 10% margin
         def get_axis_values(list):
-
             min_list = min(list)
             max_list = max(list)
             margin = 0.1*(max_list- min_list)
@@ -76,8 +72,22 @@ async def forecast_horizon(
         pof_axes = get_axis_values(pof_values_list)
         fopi_axes = get_axis_values(fopi_values_list)
 
+        if bbox:
+            lon_min, lat_min, lon_max, lat_max = _bbox_to_latlon(bbox)
+            bbox_latlon_flat = (lat_min, lon_min, lat_max, lon_max)
+        else:
+            bbox_latlon_flat = None
+
+        if start_base:
+            base_date = start_base
+        else:
+            max_bt = subset_mean_pof.base_time.max().values
+            base_date = _iso_utc_str(max_bt)
+
         response = {
-             "bbox_epsg3857": unquote(bbox) if bbox else None,
+            "base_date": base_date,
+            "bbox_epsg3857": unquote(bbox) if bbox else None,
+            "bbox_epsg4326": bbox_latlon_flat,
              "pof_forecast": pof_values_list,
              "fopi_forecast": fopi_values_list,
              "axes_pof": pof_axes,
