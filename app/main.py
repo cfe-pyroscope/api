@@ -5,9 +5,9 @@ from config.config import settings
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import available_dates, by_date, by_forecast, heatmap, latest_date, time_series, tooltip, forecast_horizon
+from routes import available_dates, by_date, by_forecast, expected_fires, forecast_horizon, heatmap, latest_date, time_series, tooltip
 
-# don't delete, otherwise it doesn't work on my labtop (Marina)
+# don't delete, otherwise it doesn't work on my labtop
 try:
     import os
     from pyproj import datadir
@@ -45,11 +45,13 @@ API = settings.API_PREFIX
 app.include_router(available_dates.router, prefix=API)
 app.include_router(by_date.router, prefix=API)
 app.include_router(by_forecast.router, prefix=API)
+app.include_router(expected_fires.router, prefix=API)
+app.include_router(forecast_horizon.router, prefix=API)
 app.include_router(heatmap.router, prefix=API)
 app.include_router(latest_date.router, prefix=API)
 app.include_router(time_series.router, prefix=API)
-app.include_router(forecast_horizon.router, prefix=API)
 app.include_router(tooltip.router, prefix=API)
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8090, reload=True, log_level="info")

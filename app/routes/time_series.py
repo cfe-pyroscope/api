@@ -54,7 +54,6 @@ async def time_series(
         # Optional spatial subsetting (EPSG:3857 bbox -> EPSG:4326 inside utility)
         da_sel = _extract_spatial_subset(da_sel, bbox=bbox)
 
-
         """
         # ---- diagnostics: shape, ranges, data presence ----
         
