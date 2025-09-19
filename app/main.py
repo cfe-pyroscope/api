@@ -5,7 +5,7 @@ from config.config import settings
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import available_dates, by_date, by_forecast, expected_fires, forecast_horizon, heatmap, latest_date, time_series, tooltip
+from routes import available_dates, by_date, by_forecast, difference_map, exceedance_frequency, expected_fires, forecast_horizon, heatmap, latest_date, time_series, tooltip
 
 # don't delete, otherwise it doesn't work on my labtop
 try:
@@ -45,6 +45,8 @@ API = settings.API_PREFIX
 app.include_router(available_dates.router, prefix=API)
 app.include_router(by_date.router, prefix=API)
 app.include_router(by_forecast.router, prefix=API)
+app.include_router(difference_map.router, prefix=API)
+app.include_router(exceedance_frequency.router, prefix=API)
 app.include_router(expected_fires.router, prefix=API)
 app.include_router(forecast_horizon.router, prefix=API)
 app.include_router(heatmap.router, prefix=API)
