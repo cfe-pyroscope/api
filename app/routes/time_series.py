@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Query, Path, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional
@@ -21,10 +20,13 @@ router = APIRouter()
 
 @router.get("/{index}/time_series")
 async def time_series(
-    index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    bbox: str = Query(None, description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
-    start_base: Optional[str] = Query(None, description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-01T00:00:00Z')."),
-    end_base: Optional[str]   = Query(None, description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-04T00:00:00Z')."),
+        index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
+        bbox: str = Query(None,
+                          description="EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (e.g., '1033428.6224155831%2C4259682.712276304%2C2100489.537276644%2C4770282.061221281')"),
+        start_base: Optional[str] = Query(None,
+                                          description="Filter runs from this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-01T00:00:00Z')."),
+        end_base: Optional[str] = Query(None,
+                                        description="Filter runs up to this base_time (inclusive). Base time ISO8601 (e.g., '2025-09-04T00:00:00Z')."),
 ):
     """
     Build a run-to-run time series (mean & median) over the dataset variable for `index`.
@@ -56,7 +58,7 @@ async def time_series(
 
         """
         # ---- diagnostics: shape, ranges, data presence ----
-        
+
         def _safe_coord_range(da, name):
             if name not in da.coords:
                 return None
@@ -115,7 +117,7 @@ async def time_series(
             "da_sel: sizes=%s lon_rng=%s lat_rng=%s non_null_total=%d has_any_data=%s per_run_head=%s",
             sizes, lon_rng, lat_rng, non_null_total, has_any_data, per_run_head,
         )
-        
+
         # ---- END diagnostics ----
         """
 
@@ -148,7 +150,7 @@ async def time_series(
             "stat": ["mean", "median"],
             "bbox_epsg3857": unquote(bbox) if bbox else None,
             "bbox_epsg4326": bbox_latlon_flat,  # lon_min, lat_min, lon_max, lat_max
-            "timestamps": timestamps_iso,   # x-axis is base_time runs
+            "timestamps": timestamps_iso,  # x-axis is base_time runs
             "mean": mean_vals,
             "median": median_vals,
         }

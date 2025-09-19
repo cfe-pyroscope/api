@@ -16,7 +16,7 @@ router = APIRouter()
 @router.get("/{index}/expected_fires")
 async def expected_fires(
     index: str = Path(..., description="Dataset identifier, e.g. 'fopi' or 'pof'."),
-    bbox: Optional[str] = Query(
+    bbox: str = Query(
         None,
         description=(
             "EPSG:3857 bbox as 'x_min,y_min,x_max,y_max' (URL-encoded commas).\n"
@@ -33,7 +33,7 @@ async def expected_fires(
     )
 ):
     """
-    Compute the **expected number of fires** for a region/time window by **summing per-cell probabilities**.
+    Compute the expected number of fires for a region/time window by summing per-cell probabilities.
 
     Assumptions & interpretation
     ----------------------------

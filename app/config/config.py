@@ -37,6 +37,10 @@ RANGE = {
     "default": [0.0, 1.0]
 }
 
+THRESHOLDS_ = {
+    "pof": [0.0, 0.0025, 0.0075, 0.015, 0.030, 0.050],
+    "fopi": [0.0, 0.2, 0.4, 0.6, 0.8]
+}
 
 class Settings(BaseSettings):
     STORAGE_ROOT: Path = (BASE_DIR / "../../data").resolve()
